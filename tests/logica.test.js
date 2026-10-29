@@ -516,6 +516,17 @@ T('v0.7.3: painel dos Esporos tem os 5 sliders novos em grupos e saves antigos g
   assert.deepStrictEqual(h2.j('["tom","metal","swing","sincopa","humano"].map(k=>M.hat.p[k])'), [.5, .3, 0, 0, 0]);
 });
 
+T('v0.7.4: menu recolhível guarda o estado fora do save do preset e começa como foi deixado', () => {
+  const h = carrega(ARQ);
+  assert.strictEqual(h.j('menuMin'), false);
+  h.run('menuAlterna()'); assert.strictEqual(h.ls.micelio_menu, '1'); assert.strictEqual(h.j('menuMin'), true);
+  assert.ok(!('micelio_menu' in JSON.parse(h.run('JSON.stringify(Object.assign({},M.hat.p))'))), 'o estado do menu não pode entrar nos parâmetros');
+  h.run('save()'); assert.ok(!/menu/.test(h.ls.micelio42), 'o save do preset não deve carregar o estado do menu');
+  const h2 = carrega(ARQ, { micelio_menu: '1' }); assert.strictEqual(h2.j('menuMin'), true);
+  h2.run('menuAlterna()'); assert.strictEqual(h2.ls.micelio_menu, '0'); assert.strictEqual(h2.j('menuMin'), false);
+  const h3 = carrega(ARQ, { micelio_menu: 'lixo' }); assert.strictEqual(h3.j('menuMin'), false);
+});
+
 // ---------- execução ----------
 (async () => {
   let ok = 0, falha = 0;

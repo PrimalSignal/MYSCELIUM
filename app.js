@@ -1,5 +1,6 @@
 "use strict";
 /* CHANGELOG
+v0.7.4 (menu): o painel do módulo ganha um botão ▾/▴ no cabeçalho (ou toque no cabeçalho) que recolhe tudo numa faixa fina com o nome do módulo e libera o canvas; o estado fica em localStorage (micelio_menu) e não entra no save do preset (micelio42). Som, preset e saves inalterados.
 v0.7.3 (hats): o painel dos Esporos ganha swing (atraso dos passos ímpares só nos hats, 0–100% = de reto até swing de 75%, independente do swing do Pulsar-mãe), síncopa (chance de empurrar o hat meio passo para trás), humano (variação aleatória de tempo e de volume), tom (corte do passa-altas, 3–16 kHz) e metal (ressonância do filtro, com ganho compensado). Todos os padrões reproduzem o som da v0.7.2: swing, síncopa e humano em 0 (sem consumir sorteios), tom 0,5 = 7 kHz e metal 0,3 = Q 1. Saves antigos ganham os padrões ao carregar.
 v0.7.2 (só tipografia): a fonte padrão de toda a interface (painel, barra do topo, HUD, instruções e rótulos do canvas) passa a ser a Syne, sem itálico (a Syne não tem; font-synthesis desligado para não gerar oblíquo falso). Carrega de syne.woff na mesma pasta (funciona offline; tools/build.js embute o arquivo no HTML único) e, se esse arquivo não existir, do Google Fonts (index.html); sem nenhum dos dois cai em system-ui.
 v0.7.1: corrige a v0.7.0 (3 testes do painel falhavam): as abas de página voltam a ter className exato "opt" (o estilo de aba agora vem de data-pg) e o teste do Raiz-baixo aceita o rótulo do slider sem o valor colado (o valor agora é um elemento à parte). Sem mudança visual nem de som.
@@ -333,6 +334,13 @@ function painel(){
  for(const k in m.p){const gp=GRUPOS[sel]&&GRUPOS[sel][k];if(gp){const lt=document.createElement("div");lt.className="lbl";lt.textContent=gp;box.appendChild(lt)}ctl(sel,k)}
 }
 painel();
+// menu recolhível (v0.7.4): recolhido, o painel vira uma faixa fina (nome do módulo + botão); o estado vai em micelio_menu, fora do save do preset
+let menuMin=false;try{menuMin=localStorage.getItem("micelio_menu")==="1"}catch(e){}
+function menuAplica(){const p=document.getElementById("panel"),b=document.getElementById("mn");if(p&&p.classList)p.classList.toggle("min",menuMin);
+ if(b){b.textContent=menuMin?"▴":"▾";if(b.setAttribute){b.setAttribute("aria-expanded",menuMin?"false":"true");b.setAttribute("aria-label",menuMin?"Maximizar menu":"Minimizar menu")}}}
+function menuAlterna(){menuMin=!menuMin;try{localStorage.setItem("micelio_menu",menuMin?"1":"0")}catch(e){}menuAplica()}
+{const ph=document.getElementById("ph");if(ph)ph.onclick=menuAlterna}
+menuAplica();
 
 // ---------- Floresta ----------
 const cv=document.getElementById("c"),g=cv.getContext("2d");
