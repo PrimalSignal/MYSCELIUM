@@ -1,5 +1,6 @@
 "use strict";
 /* CHANGELOG
+v0.7.0 (só visual do painel de opções, sem mudança de som nem de dados): o painel herda a cor do módulo (variável CSS --c, via m.cor); sliders viram fio fino com nó e valor em mono à direita (sem valor formatado mostra 0–100); botões de opção viram pílulas, células dos passos ganham cantos de folha e brilho na cor do módulo (acabou o amarelo único); cada linha de passos tem rótulo (kick, baixo, oitava, chapéu, acento); abas de página mais discretas; fundo do painel translúcido com desfoque. Mesmos nomes de classe e mesmos handlers da v0.6.1.
 v0.6.1: o painel do Raiz-baixo agora também edita as notas do baixo (nome da nota, oitava e acento por passo, páginas, raiz, escala, comprimento e direção da trilha do baixo), sem precisar abrir o Tronco-relógio; mesmo dado, mesmas teclas.
 v0.6.0 (controle de notas, sem mudança de som no preset): (1) cada passo do baixo agora tem nota (grau da escala escolhida, mostrado como nome da nota, por exemplo E2) e oitava própria (nova linha "oitava", de −1 a +2); o salto de oitava que era automático a cada 8º passo virou dado por passo e saves antigos ganham os mesmos saltos ao carregar (normS), então o som do preset não muda. (2) o Tronco-relógio ganha "escala" (frígia, menor, pentat., cromática): em cromática cada passo é um semitom; graus além do tamanho da escala sobem uma oitava. (3) o slider raiz mostra o nome da nota. (4) Samambaia-FM ganha "notas" (sorteio, como antes, ou segue baixo, 2 oitavas acima da última nota do baixo) e "transp" (−24 a +24 semitones). O sorteio do FM passa a usar a escala escolhida. Salvamento: mesma chave micelio42 (compatível nos dois sentidos: a v0.5.9 ignora os campos novos; parâmetros novos ficam nos padrões se o save não os tiver). Lógica pura nova: nota.
 v0.5.9 (corrige a H2 da v0.5.8; ?diag): (1) o reinício do LFO por gate usava o ganho de profundidade (m.o.gain) como fade e depois o forçava a 1 num setTimeout: o LFO sumia por ~0,1 s e a profundidade do patch era ignorada; agora cada oscilador tem o próprio ganho de crossfade e m.o.gain fica só com a profundidade. (2) dispEnv chamava valueAtTime, que não existe em AudioParam; agora usa cancelAndHoldAtTime (com reserva para navegadores sem ele). (3) a queda do kick volta a ser exponencial (a v0.5.8 a trocou por linear sem avisar) e termina em zero. (4) o sidechain do baixo e do FM desce em 4 ms em vez de dar degrau. (5) chapéu e FM terminam em zero (o chapéu era cortado em 0,3 s com queda longa). (6) janela de agendamento do relógio de 120 para 180 ms (aguenta travadas de até ~150 ms na thread principal). (7) worklet: valores de parâmetro constantes agora são suavizados em 5 ms dentro do processador (antes atribuir param.value era um degrau) e estados são zerados quando ficam minúsculos (denormais). (8) lista de eventos visuais limitada. (9) ?diag no fim do endereço mostra no HUD estouros do relógio, atraso de pico, vozes de pico e tamanho da fila. Preset, parâmetros, cabos e salvamento (micelio42) inalterados.
@@ -294,23 +295,25 @@ const NE=()=>Math.round(P("euc","passos")*15);
 const NOMES={compk:"comp k",compb:"comp b",comph:"comp h",dirk:"dir k",dirb:"dir b",dirh:"dir h"};
 const dimSeq=()=>{const n={k:comp(P("seq","compk")),b:comp(P("seq","compb")),h:comp(P("seq","comph"))};document.querySelectorAll(".gr button").forEach(b=>b.classList.toggle("fora",+b.dataset.i>=n[b.dataset.tr]))};
 const FMT={fm:{transp:v=>{const s=Math.round((v-.5)*48);return(s>0?"+":"")+s+" st"}},euc:{passos:v=>1+Math.round(v*15),pulsos:v=>Math.round(v*(1+NE())),rota:v=>Math.round(v*NE())},clk:{swing:v=>Math.round(v*100)+"%"},seq:{compk:comp,compb:comp,comph:comp,raiz:v=>nomeN(31+Math.round(v*12))},prob:{chance:v=>Math.round(v*100)+"%"},dur:{dur:v=>String(Math.round(gateLen(v)*100)/100).replace(".",",")+"p"},qnt:{oitavas:v=>1+Math.round(v*2)}};
+const cssv=(el,k,v)=>{if(el&&el.style&&el.style.setProperty)el.style.setProperty(k,v)};
 function painel(){
- const m=M[sel],box=document.getElementById("ps"),nb=sel==="bass";document.getElementById("nm").textContent=m.nome;box.innerHTML="";
+ const m=M[sel],box=document.getElementById("ps"),nb=sel==="bass";document.getElementById("nm").textContent=m.nome;box.innerHTML="";cssv(document.getElementById("panel"),"--c",m.cor);
  // controle (slider ou opções) de um parâmetro de qualquer módulo; o painel do baixo também edita notas e escala do Tronco
  const ctl=(mod,k)=>{const mm=M[mod];
   if((mod==="lfo1"||mod==="lfo2")&&((k==="taxa"&&mm.p.sync)||(k==="ciclo"&&!mm.p.sync)))return;
   if(opts(mod,k)){const d=document.createElement("div");d.className="opt";
    opts(mod,k).forEach((n,i)=>{const b=document.createElement("button");b.textContent=(k==="alvo"?"CV→ ":(NOMES[k]||k)+" ")+n;b.className=mm.p[k]===i?"on":"";
     b.onclick=()=>{mm.p[k]=i;aplicar();save();painel()};d.appendChild(b)});box.appendChild(d);return}
-  const d=document.createElement("div");d.className="p";const lb=document.createElement("span");d.appendChild(lb);
-  const rot=()=>{lb.textContent=(NOMES[k]||k)+(FMT[mod]&&FMT[mod][k]?" "+FMT[mod][k](mm.p[k]):"")};rot();
+  const d=document.createElement("div");d.className="p";const lb=document.createElement("span"),vl=document.createElement("span");vl.className="v";d.appendChild(lb);
   const r=document.createElement("input");r.type="range";r.min=0;r.max=1;r.step=.01;r.value=mm.p[k];
-  r.oninput=()=>{mm.p[k]=+r.value;rot();if(mod==="seq"){dimSeq();pintas.forEach(f=>f())}aplicar();save()};d.appendChild(r);box.appendChild(d)};
- if(sel==="seq"||nb){const d=document.createElement("div");d.className="opt";
+  const rot=()=>{lb.textContent=NOMES[k]||k;vl.textContent=FMT[mod]&&FMT[mod][k]?String(FMT[mod][k](mm.p[k])):String(Math.round(mm.p[k]*100));cssv(r,"--v",Math.round(mm.p[k]*100)+"%")};rot();
+  r.oninput=()=>{mm.p[k]=+r.value;rot();if(mod==="seq"){dimSeq();pintas.forEach(f=>f())}aplicar();save()};d.appendChild(r);d.appendChild(vl);box.appendChild(d)};
+ if(sel==="seq"||nb){const d=document.createElement("div");d.className="opt pg";
   ["passos 1–8","9–16","17–24","25–32"].forEach((n,j)=>{const b=document.createElement("button");b.textContent=n;b.className=pg===j?"on":"";b.onclick=()=>{pg=j;painel()};d.appendChild(b)});box.appendChild(d)}
  pintas=[];
- if(sel==="seq"||nb)for(const [,key,mx,fmt,trk] of TR){
+ if(sel==="seq"||nb)for(const [nomeTr,key,mx,fmt,trk] of TR){
   if(nb&&key!=="b"&&key!=="o"&&key!=="a")continue;
+  const lt=document.createElement("div");lt.className="lbl";lt.textContent=nomeTr;box.appendChild(lt);
   const r=document.createElement("div");r.className="gr";
   for(let j=0;j<8;j++){const i=pg*8+j,b=document.createElement("button");b.dataset.i=i;b.dataset.tr=trk||key;
    const pinta=()=>{b.textContent=fmt(S[key][i],i);b.classList.toggle("on",key==="b"?S[key][i]>=0:key==="o"?S[key][i]!==0:S[key][i]>0)};pinta();pintas.push(pinta);
