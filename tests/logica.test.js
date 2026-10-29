@@ -540,6 +540,77 @@ T('v0.7.5: menu recolhido espalha a floresta pela tela e expandido volta à altu
   const h2 = carrega(ARQ, { micelio_menu: '1' }); assert.strictEqual(h2.j('FH()'), 800 - 88);
 });
 
+// ---------- v0.7.6: DSP do worklet (ladder e dobrador) ----------
+function carregaWK(sr) {
+  const reg = {}, sb = { sampleRate: sr, AudioWorkletProcessor: class {}, registerProcessor: (n, c) => { reg[n] = c; }, Math };
+  vm.createContext(sb); vm.runInContext(fs.readFileSync(path.join(RAIZ, 'dsp-worklet.js'), 'utf8'), sb); return reg;
+}
+function rodaWK(reg, nome, x, pr) {
+  const P = new reg[nome](), y = new Float32Array(x.length);
+  for (let i = 0; i < x.length; i += 128) {
+    const n = Math.min(128, x.length - i), O = [[new Float32Array(n)]], pp = {}; for (const k in pr) pp[k] = [pr[k]];
+    P.process([[x.subarray(i, i + n)]], O, pp); y.set(O[0][0], i);
+  }
+  return y;
+}
+const rmsWK = a => Math.sqrt(a.reduce((s, v) => s + v * v, 0) / a.length);
+const baixoWK = sr => { const s = new Float32Array(sr * 2); for (let n = 0; n < s.length; n++) s[n] = .28 * (Math.sin(2 * Math.PI * 49 * n / sr) * .77 + ((n * 49 / sr) % 1 * 2 - 1) * 2); return s; };
+function fftWK(re, im) {
+  const n = re.length;
+  for (let i = 1, j = 0; i < n; i++) { let b = n >> 1; for (; j & b; b >>= 1) j ^= b; j ^= b; if (i < j) { [re[i], re[j]] = [re[j], re[i]]; [im[i], im[j]] = [im[j], im[i]]; } }
+  for (let len = 2; len <= n; len <<= 1) { const a = -2 * Math.PI / len; for (let i = 0; i < n; i += len) for (let k = 0; k < len / 2; k++) { const c = Math.cos(a * k), s = Math.sin(a * k), xr = re[i + k + len / 2] * c - im[i + k + len / 2] * s, xi = re[i + k + len / 2] * s + im[i + k + len / 2] * c; re[i + k + len / 2] = re[i + k] - xr; im[i + k + len / 2] = im[i + k] - xi; re[i + k] += xr; im[i + k] += xi; } }
+}
+// energia fora dos harmônicos abaixo de 16 kHz (aliasing audível) em dB da energia total; k0 ímpar, sinal periódico em N amostras
+function aliasWK(y, k0, sr) {
+  const N = y.length, re = Float64Array.from(y), im = new Float64Array(N); fftWK(re, im);
+  let eh = 0, ea = 0; const KL = Math.floor(16000 * N / sr);
+  for (let k = 1; k < N / 2; k++) { const e = re[k] * re[k] + im[k] * im[k]; if (k % k0 === 0) eh += e; else if (k <= KL) ea += e; }
+  return 10 * Math.log10(ea / (eh + ea));
+}
+T('v0.7.6: ladder no drive do preset é idêntico ao da v0.7.5 (impressão digital)', () => {
+  const R = carregaWK(48000), y = rodaWK(R, 'ladder', baixoWK(48000), { cutoff: 404, res: .575, drive: 4.6 });
+  let a = 0, q = 0; for (const v of y) { a += Math.abs(v); q += v * v; }
+  assert.ok(Math.abs(a / 13785.1046562 - 1) < 1e-9, 'soma|y| ' + a); assert.ok(Math.abs(q / 4376.98067926 - 1) < 1e-9, 'soma y2 ' + q);
+  assert.ok(Math.abs(y[30000] - -0.030168641358613968) < 1e-9 && Math.abs(y[90000] - 0.19153793156147003) < 1e-9);
+});
+T('v0.7.6: ladder não auto-oscila: ressonância no máximo morre depois de uma rajada e não nasce do silêncio', () => {
+  const sr = 48000, R = carregaWK(sr);
+  for (const drive of [1, 12]) for (const res of [1.15, 1.2]) {
+    const x = new Float32Array(sr * 8); let s = 1; for (let n = 0; n < 2400; n++) { s = (s * 1664525 + 1013904223) >>> 0; x[n] = ((s / 4294967296) * 2 - 1) * .5; }
+    const y = rodaWK(R, 'ladder', x, { cutoff: 800, res, drive }); assert.ok(rmsWK(y.subarray(6 * sr)) < 1e-6, 'rajada: drive ' + drive + ' res ' + res + ' rms ' + rmsWK(y.subarray(6 * sr)));
+    const z = rodaWK(R, 'ladder', new Float32Array(sr * 12), { cutoff: 800, res, drive }); assert.ok(rmsWK(z.subarray(8 * sr)) < 1e-6, 'silêncio: drive ' + drive + ' res ' + res);
+  }
+});
+T('v0.7.6: o drive do ladder mexe no timbre sem mexer o volume mais que 4 dB (antes: 16 dB)', () => {
+  const sr = 48000, R = carregaWK(sr), s = baixoWK(sr), n = [];
+  for (const d of [1, 2.5, 4.6, 7, 9, 12]) n.push(20 * Math.log10(rmsWK(rodaWK(R, 'ladder', s, { cutoff: 404, res: .575, drive: d }).subarray(sr))));
+  const dif = Math.max(...n) - Math.min(...n); assert.ok(dif < 4, 'variação de ' + dif.toFixed(1) + ' dB: ' + n.map(v => v.toFixed(1)));
+});
+T('v0.7.6: dobrador com sobreamostragem é transparente em baixo nível (atraso de 17 amostras, erro < -60 dB)', () => {
+  const sr = 48000, R = carregaWK(sr);
+  for (const f of [200, 1000, 3000]) {
+    const x = new Float32Array(sr / 2); for (let n = 0; n < x.length; n++) x[n] = .05 * Math.sin(2 * Math.PI * f * n / sr);
+    const y = rodaWK(R, 'fold', x, { fold: 1, bias: 0 }), ref = new Float64Array(x.length), Rr = 1 - 6.2832 * 8 / sr; let dx = 1e-18, dy = 1e-18;
+    for (let n = 0; n < x.length; n++) { const v = .85 * Math.sin(x[n] * 1.5708), o = v - dx + Rr * dy; dx = v; dy = o; ref[n] = o; }
+    let e = 0, p = 0; for (let n = 8000; n < 20000; n++) { const d = y[n + 17] - ref[n]; e += d * d; p += ref[n] * ref[n]; }
+    assert.ok(10 * Math.log10(e / p) < -60, f + ' Hz: erro ' + (10 * Math.log10(e / p)).toFixed(1) + ' dB');
+  }
+});
+T('v0.7.6: dobrador sobreamostrado derruba o aliasing audível (<16 kHz) onde a v0.7.5 passava de -50 dB', () => {
+  const sr = 48000, N = 4096, R = carregaWK(sr);
+  for (const [k0, F, amp, lim] of [[187, 5.8, 1, -100], [93, 14, 1, -100], [187, 14, 1, -55], [373, 5.8, 1, -55], [373, 14, .3, -70], [373, 14, 1, -55]]) {
+    const x = new Float32Array(N * 10); for (let n = 0; n < x.length; n++) x[n] = amp * Math.sin(2 * Math.PI * k0 * n / N);
+    const a = aliasWK(rodaWK(R, 'fold', x, { fold: F, bias: 0 }).subarray(N * 9), k0, sr);
+    assert.ok(a < lim, 'k0 ' + k0 + ' fold ' + F + ' entrada ' + amp + ': ' + a.toFixed(1) + ' dB (limite ' + lim + ')');
+  }
+});
+T('v0.7.6: ladder, dobrador e crush ficam finitos em extremos e o dobrador não deixa resíduo no silêncio', () => {
+  const sr = 48000, R = carregaWK(sr), x = new Float32Array(sr * 2); let s = 7; for (let n = 0; n < x.length; n++) { s = (s * 1664525 + 1013904223) >>> 0; x[n] = (s / 4294967296) * 2 - 1; }
+  for (const [c, r, d] of [[14000, 1.2, 12], [20, 1.2, 12], [800, 1.2, 12]]) { const y = rodaWK(R, 'ladder', x, { cutoff: c, res: r, drive: d }); assert.ok(y.every(Number.isFinite) && y.every(v => Math.abs(v) < 4), 'ladder ' + c); }
+  for (const F of [1, 14]) for (const B of [-1, 0, 1]) { const y = rodaWK(R, 'fold', x, { fold: F, bias: B }); assert.ok(y.every(Number.isFinite) && y.every(v => Math.abs(v) < 2), 'fold ' + F + ' ' + B); }
+  const z = rodaWK(R, 'fold', new Float32Array(sr), { fold: 5.8, bias: 0 }); assert.ok(z.every(v => Math.abs(v) < 1e-12));
+});
+
 // ---------- execução ----------
 (async () => {
   let ok = 0, falha = 0;
