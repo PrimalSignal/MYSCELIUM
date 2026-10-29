@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#05060a">
+<title>Micélio v0.5.7</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="top"><button id="play" aria-label="Tocar ou parar">▶</button><label>BPM <b id="bv">200</b><input id="bpm" type="range" min="130" max="210" value="200"></label><button id="rst">padrão</button><button id="pan">pânico</button></div><div id="hud"></div>
+<div id="msg">toque ▶ para acordar a floresta<br>arraste o fundo para andar · arraste de uma saída para uma entrada (● áudio, ◇ CV no topo, ▷ gate à esquerda) · toque no ponto do cipó para cortar<br>segure “padrão” para restaurar o preset de som completo</div>
+<div id="panel"><h2 id="nm"></h2><div id="ps"></div></div>
+<script src="app.js"></script>
+</body>
+</html>

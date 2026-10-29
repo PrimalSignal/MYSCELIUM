@@ -1,0 +1,22 @@
+:root{--ciano:#2dffe0;--mag:#ff2e93;--txt:#d8f5ea;color-scheme:dark}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:#05060a;color:var(--txt);font:15px/1.3 Georgia,serif;overflow:hidden;overscroll-behavior:none}
+canvas{position:fixed;inset:0;width:100%;height:100%;touch-action:none}
+#top{position:fixed;left:0;right:0;top:0;display:flex;gap:12px;align-items:center;padding:calc(10px + env(safe-area-inset-top,0px)) 14px 8px;pointer-events:none}
+#top>*{pointer-events:auto}
+#play{background:none;border:1.5px solid var(--ciano);color:var(--ciano);border-radius:50%;width:48px;height:48px;font-size:20px}
+#play.on{background:var(--ciano);color:#001;box-shadow:0 0 18px var(--ciano)}
+#top label{flex:1;font-style:italic}
+#rst{background:none;border:1px solid #567;color:#9ab;border-radius:8px;min-height:44px;padding:0 12px;font:inherit;font-size:13px}
+#panel{position:fixed;left:0;right:0;bottom:0;max-height:54vh;overflow-y:auto;padding:12px 14px calc(12px + env(safe-area-inset-bottom,0px));background:linear-gradient(transparent,rgba(5,6,10,.95) 18%)}
+#panel h2{margin:0 0 4px;font-size:19px;font-weight:normal;font-style:italic;color:var(--ciano)}
+.p{display:grid;grid-template-columns:78px 1fr;align-items:center;gap:8px;margin:1px 0}
+.p span{white-space:nowrap;font-size:13px}
+input[type=range]{width:100%;height:40px;accent-color:var(--mag);background:none}
+.gr{display:grid;grid-template-columns:repeat(8,1fr);gap:4px;margin:4px 0}
+.gr button,.opt button{height:44px;padding:0;border:1px solid #345;background:#0a0f14;color:var(--txt);font-size:14px;border-radius:4px}
+.gr button.on,.opt button.on{background:#ffd24a;color:#000}
+.gr button.now{outline:2px solid var(--ciano)}.gr button.fora{opacity:.28}
+.opt{display:flex;gap:4px;flex-wrap:wrap;margin:3px 0}.opt button{height:44px;padding:0 12px;font:13px Georgia,serif}
+#pan{background:none;border:1px solid var(--mag);color:var(--mag);border-radius:8px;min-height:44px;padding:0 12px;font:inherit;font-size:13px}#hud{position:fixed;left:14px;top:calc(62px + env(safe-area-inset-top,0px));font-size:11px;font-style:italic;color:#8fb;opacity:.75;pointer-events:none}#hud.clip{color:var(--mag);opacity:1}
+#msg{position:fixed;top:44%;left:0;right:0;padding:0 24px;text-align:center;font-size:16px;font-style:italic;pointer-events:none;transition:opacity .6s;text-shadow:0 0 12px #b14cff}

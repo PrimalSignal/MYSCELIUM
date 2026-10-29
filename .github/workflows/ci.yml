@@ -1,0 +1,26 @@
+name: testes
+on: [push, pull_request]
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Sintaxe
+        run: |
+          node --check app.js
+          node --check dsp-worklet.js
+          node --check tools/build.js
+      - name: Montar o arquivo único
+        run: node tools/build.js
+      - name: Testes de lógica e do app
+        run: node tests/logica.test.js dist/micelio-single.html
+      - name: Testes do worklet
+        run: node tests/worklet.test.js
+      - name: Guardar o arquivo único
+        uses: actions/upload-artifact@v4
+        with:
+          name: micelio-single
+          path: dist/micelio-single.html
