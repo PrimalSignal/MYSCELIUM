@@ -463,6 +463,21 @@ T('v0.6.0: save sem o (formato da v0.5.9) carrega com os saltos de oitava de ant
   const h = carrega(ARQ); assert.strictEqual(h.j('S.o[7]'), 1); assert.strictEqual(h.j('S.o[15]'), 1); assert.strictEqual(h.j('S.o[0]'), 0);
 });
 
+T('v0.6.1: o painel do Raiz-baixo edita notas, oitava e acento, e mexe no mesmo S do Tronco', () => {
+  const h = carrega(ARQ); h.elems.ps.children.length = 0; h.run('sel="bass";pg=0;painel()'); const k = h.elems.ps.children;
+  const rows = k.filter(c => c.className === 'gr'); assert.strictEqual(rows.length, 3);
+  assert.deepStrictEqual(rows.map(r => r.children[0].dataset.tr), ['b', 'b', 'b']);
+  const o0 = h.j('S.o[0]'); rows[1].children[0].onclick(); assert.strictEqual(h.j('S.o[0]'), o0 + 1);
+  const b0 = h.j('S.b[0]'); rows[0].children[0].onclick(); assert.strictEqual(h.j('S.b[0]'), b0 >= 6 ? -1 : b0 + 1);
+  const txt = k.filter(c => c.className === 'p').map(c => c.children[0].textContent);
+  assert.ok(txt.some(t => /^raiz /.test(t)) && txt.some(t => /^comp b/.test(t)) && txt.some(t => /^duck/.test(t)), txt.join('|'));
+  assert.ok(k.some(c => c.className === 'opt' && c.children.some(b => /escala/.test(b.textContent))));
+});
+T('v0.6.1: painel do Tronco continua com as 5 linhas e sem os sliders do baixo duplicados', () => {
+  const h = carrega(ARQ), k = abre(h, 0); assert.strictEqual(k.filter(c => c.className === 'gr').length, 5);
+  assert.ok(!k.some(c => c.className === 'p' && /^duck/.test(c.children[0].textContent)));
+});
+
 // ---------- execução ----------
 (async () => {
   let ok = 0, falha = 0;
