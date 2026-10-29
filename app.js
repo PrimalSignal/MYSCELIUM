@@ -1,5 +1,6 @@
 "use strict";
 /* CHANGELOG
+v0.5.9 (corrige a H2 da v0.5.8; ?diag): (1) o reinício do LFO por gate usava o ganho de profundidade (m.o.gain) como fade e depois o forçava a 1 num setTimeout: o LFO sumia por ~0,1 s e a profundidade do patch era ignorada; agora cada oscilador tem o próprio ganho de crossfade e m.o.gain fica só com a profundidade. (2) dispEnv chamava valueAtTime, que não existe em AudioParam; agora usa cancelAndHoldAtTime (com reserva para navegadores sem ele). (3) a queda do kick volta a ser exponencial (a v0.5.8 a trocou por linear sem avisar) e termina em zero. (4) o sidechain do baixo e do FM desce em 4 ms em vez de dar degrau. (5) chapéu e FM terminam em zero (o chapéu era cortado em 0,3 s com queda longa). (6) janela de agendamento do relógio de 120 para 180 ms (aguenta travadas de até ~150 ms na thread principal). (7) worklet: valores de parâmetro constantes agora são suavizados em 5 ms dentro do processador (antes atribuir param.value era um degrau) e estados são zerados quando ficam minúsculos (denormais). (8) lista de eventos visuais limitada. (9) ?diag no fim do endereço mostra no HUD estouros do relógio, atraso de pico, vozes de pico e tamanho da fila. Preset, parâmetros, cabos e salvamento (micelio42) inalterados.
 v0.5.8 (H2: descontinuidades de DSP): envelopes agora partem do valor atual no retrigger (evitam degrau), release com piso de rampa de 5ms (corte mais suave), voice stealing e fim de nota com fade de 10ms (sem corte brusco), reinício do LFO por gate agora faz crossfade de 3ms (evita salto se fase não for zero), mudanças de parâmetros de áudio (ganho, cutoff, drive, fold, bias, esmaga, taxa) têm suavização automática de 5ms no modo nativo (worklet já usa AudioParam com rampa implícita), troca de preset e mudança de BPM agora aplicam rampa de parâmetros (sem degrau), resetar() faz fade de 10ms ao parar as vozes. Proteção contra denormals nos filtros do worklet (offset de 1e-18 nos estados). Diagnóstico detalhado em docs/diagnostico-v0.5.8.md.
 v0.5.7 (Etapa B, infraestrutura): o app agora é um repositório com index.html, style.css, app.js e dsp-worklet.js; o AudioWorklet carrega de arquivo (addModule("dsp-worklet.js"), exige https ou localhost, como o GitHub Pages). Se o arquivo falhar, o app cai no modo nativo e o HUD mostra o motivo; abrir com ?nativo no fim do endereço força o modo nativo (para comparar o som dos dois). tools/build.js monta o arquivo único (worklet embutido) para teste offline e para abrir direto no Chrome do Android por content://; os testes rodam nesse arquivo. Modo nativo, interface, preset e salvamento (micelio42) inalterados. Mudança de som só no modo worklet, que ainda não tinha rodado no aparelho: medido offline, o ladder do worklet saía ~8 dB mais alto que o nativo e com DC (~0,1), e o dobrador com bias tinha DC (~0,1) até em silêncio; agora ladder e dobrador têm filtro de DC (passa-altas de 8 Hz) e o ladder tem ganho de saída ×0,38, que iguala o RMS ao do nativo no preset (diferença < 0,5 dB, só no modelo offline, não ouvido); atenção: o localStorage é por origem, então o save de content:// não aparece no endereço https. Para trazer o preset de fábrica no endereço novo, segure "padrão" por 0,7 s. Pendência: o ladder do worklet (4 polos com tanh e drive) é outro filtro que o nativo (2 biquads, sem drive): o timbre difere mesmo com o nível igualado e precisa ser ouvido e recalibrado no aparelho (Etapa B, aceite).
 v0.5.6 (Etapa A, alvos de toque e limpeza, sem mudança de som): a grade de passos do Tronco-relógio agora tem 4 páginas de 8 passos (1–8, 9–16, 17–24, 25–32) com botões de 44 px de altura e cerca de 46 px de largura em tela de 400 px (antes 16 colunas de 36 px de altura); os botões de opção, pânico, padrão e os sliders passaram a 44 px (sliders 40 px); as portas de gate do relógio e do tronco ficam a 30 px uma da outra (antes 22) e a captura da porta mais próxima vale até 24 px. resetar() agora para os osciladores dos LFOs e os envelopes antigos antes de recriar os módulos (antes ficavam rodando sem destino). Preset, parâmetros, cabos e salvamento (micelio42) inalterados. Pendências que continuam: kick longo em 200 BPM, 2–6 kHz abaixo da referência, onda quadrada do LFO com salto no reinício.
@@ -119,6 +120,7 @@ function aviso(t){const m=document.getElementById("msg");m.innerHTML=t;m.style.o
 const curva=a=>{const n=1025,c=new Float32Array(n);for(let i=0;i<n;i++)c[i]=Math.tanh((i/(n-1)*2-1)*(1+a*12));return c};
 const curvaEco=()=>{const n=1025,c=new Float32Array(n);for(let i=0;i<n;i++)c[i]=Math.tanh(i/(n-1)*2-1);return c};
 const hz=n=>440*Math.pow(2,(n-69)/12);
+const prende=(p,t)=>{if(p.cancelAndHoldAtTime)p.cancelAndHoldAtTime(t);else{p.cancelScheduledValues(t);p.setValueAtTime(p.value,t)}};
 const wp=(m,n,v)=>{const p=ap(m,n);if(p)p.value=v*((m.fm&&m.fm[n])||1)};
 function montaNos(){
  const G=()=>ctx.createGain(),mk=n=>ok?new AudioWorkletNode(ctx,n,{channelCount:1,channelCountMode:"explicit",outputChannelCount:[1]}):G();
@@ -136,7 +138,7 @@ function montaNos(){
  const lp=ctx.createBiquadFilter();lp.frequency.value=1800;const sat=ctx.createWaveShaper();sat.curve=curvaEco();
  E.i.connect(dly);dly.connect(lp);lp.connect(sat);sat.connect(fbg);fbg.connect(dly);sat.connect(wet);wet.connect(E.o);
  M.out.i=master;
- for(const k of ["lfo1","lfo2"]){const o=ctx.createOscillator();M[k].osc=o;M[k].o=G();o.connect(M[k].o);o.start()}
+ for(const k of ["lfo1","lfo2"]){const o=ctx.createOscillator(),og=G();M[k].osc=o;M[k].og=og;M[k].o=G();o.connect(og);og.connect(M[k].o);o.start()}
  for(const k of ["env1","env2"]){const c=ctx.createConstantSource();c.offset.value=0;c.start();M[k].cs=c;M[k].o=c}
  for(const k in ALV){M[k].c=G();M[k].ca=-1}
  for(const c of C)liga(c[0],c[1],c[2]);
@@ -172,11 +174,12 @@ function aplicar(){
 }
 const ESC=[0,1,3,5,7,8,10],ESCS=[ESC,[0,2,3,5,7,8,10],[0,3,5,7,10],[0,1,2,3,4,5,6,7,8,9,10,11]];
 const evs=[],E={};for(const k in M)E[k]=0;let beat=0,vis={k:0,b:0,h:0},pvk=-1,pvb=-1,pvh=-1,pg=0;
-const ev=(t,m,i,tr)=>evs.push({t,m,i,tr});
+const ev=(t,m,i,tr)=>{evs.push({t,m,i,tr});if(evs.length>2000)evs.splice(0,1000)};
 // ---------- Tempo como sinal: gates por cabo ----------
 const temG=k=>C.some(c=>c[2]==="g"&&c[1]===k);
 function dispEnv(k,t,d){const m=M[k],o=m.cs.offset,e=envPlan(m.p.modo,m.p.ataque,m.p.queda,d&&d.dur>0?d.dur:d&&d.n>0?d.n:60/bpm/4);
- const val0=o.valueAtTime?(o.valueAtTime(t-1e-6)||0):o.value;o.cancelScheduledValues(t);o.setValueAtTime(val0,t);o.linearRampToValueAtTime(1,t+e.a);
+ if(o.cancelAndHoldAtTime)o.cancelAndHoldAtTime(t);else{const val0=o.valueAtTime?(o.valueAtTime(t-1e-6)||0):o.value;o.cancelScheduledValues(t);o.setValueAtTime(val0,t)}
+ o.linearRampToValueAtTime(1,t+e.a);
  if(e.h>e.a)o.setValueAtTime(1,t+e.h);const release=Math.max(e.tau,.005);o.setTargetAtTime(0,t+Math.max(e.h,e.a),release);ev(t,k)}
 // reserva: envelope sem cabo de gate segue o parâmetro gate antigo
 function gat(n,t){for(const k of ["env1","env2"])if(!temG(k)&&OPT.gate[M[k].p.gate]===n)dispEnv(k,t)}
@@ -204,18 +207,21 @@ function entra(k,t,d,dep){
   ev(t,k);sai(Object.assign({},d,{s:b}))}
 }
 // gate no LFO: troca o oscilador por um novo que começa em t (fase zero); o antigo para em t com crossfade
-function reiniciaLfo(k,t){const m=M[k];if(!m.osc)return;const o=ctx.createOscillator(),v=m.osc,g=ctx.createGain(),cf=.003;
- o.type=OPT.forma[m.p.forma];o.frequency.value=lfoHz(m.p,bpm);o.connect(g);g.connect(m.o);g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(1,t+cf);
- v.connect(m.o);m.o.gain.setValueAtTime(1,t);m.o.gain.linearRampToValueAtTime(0,t+cf);o.start(t);v.stop(t+cf);m.osc=o;m.rt=t;ev(t,k);
- setTimeout(()=>{m.o.gain.cancelScheduledValues(0);m.o.gain.value=1},cf*1000+100)}
+function reiniciaLfo(k,t){const m=M[k];if(!m.osc||!m.og)return;
+ const o=ctx.createOscillator(),g=ctx.createGain(),v=m.osc,vg=m.og,cf=.003,t0=Math.max(t,ctx.currentTime);
+ o.type=OPT.forma[m.p.forma];o.frequency.value=lfoHz(m.p,bpm);o.connect(g);g.connect(m.o);
+ g.gain.setValueAtTime(0,t0);g.gain.linearRampToValueAtTime(1,t0+cf);
+ prende(vg.gain,t0);vg.gain.linearRampToValueAtTime(0,t0+cf);
+ o.start(t0);v.stop(t0+cf+.005);v.onended=()=>{try{v.disconnect();vg.disconnect()}catch(e){}};
+ m.osc=o;m.og=g;m.rt=t0;ev(t0,k)}
 function kick(t){
  const o=ctx.createOscillator(),g=ctx.createGain(),base=36+P("kick","afino")*24,ini=base+80+P("kick","soco")*420;
  o.frequency.setValueAtTime(ini,t);o.frequency.exponentialRampToValueAtTime(base,t+.035+P("kick","soco")*.05);
- g.gain.setValueAtTime(1,t);g.gain.linearRampToValueAtTime(.001,t+.12+P("kick","queda")*.4);
+ g.gain.setValueAtTime(1,t);g.gain.exponentialRampToValueAtTime(.001,t+.12+P("kick","queda")*.4);g.gain.linearRampToValueAtTime(0,t+.58);
  conta(o);o.connect(g);g.connect(kickShp);o.start(t);o.stop(t+.6);
  {const c=ctx.createOscillator(),cg=ctx.createGain();c.type="square";c.frequency.value=1500;cg.gain.setValueAtTime(.08+P("kick","clique")*.5,t);cg.gain.exponentialRampToValueAtTime(.001,t+.008);c.connect(cg);cg.connect(M.kick.o);conta(c);c.start(t);c.stop(t+.02)}
- const d=M.bass.o.gain;d.cancelScheduledValues(t);d.setValueAtTime(1-P("bass","duck")*.9,t);d.linearRampToValueAtTime(1,t+.2);
- const f=M.fm.o.gain;f.cancelScheduledValues(t);f.setValueAtTime(1-P("bass","duck")*.45,t);f.linearRampToValueAtTime(1,t+.18);
+ const d=M.bass.o.gain;prende(d,t);d.linearRampToValueAtTime(1-P("bass","duck")*.9,t+.004);d.linearRampToValueAtTime(1,t+.2);
+ const f=M.fm.o.gain;prende(f,t);f.linearRampToValueAtTime(1-P("bass","duck")*.45,t+.004);f.linearRampToValueAtTime(1,t+.18);
  ev(t,"kick");gat("kick",t);
 }
 function baixo(t,nota,dur,ac){
@@ -231,15 +237,15 @@ function fm(t,nota,dur){if(voz>40)return;
  const c=ctx.createOscillator(),m=ctx.createOscillator(),mg=ctx.createGain(),g=ctx.createGain(),fr=hz(nota),R=[1,1.41,2.76,3.5,5.19,7.07];
  c.frequency.setValueAtTime(fr*1.6,t);c.frequency.exponentialRampToValueAtTime(fr,t+.06);m.frequency.value=fr*R[Math.floor(P("fm","razao")*5.99)];
  mg.gain.setValueAtTime(fr*P("fm","indice")*8,t);mg.gain.exponentialRampToValueAtTime(fr*.1,t+dur);
- g.gain.setValueAtTime(P("fm","vol")*.35,t);g.gain.exponentialRampToValueAtTime(.001,t+dur);
+ g.gain.setValueAtTime(P("fm","vol")*.35,t);g.gain.exponentialRampToValueAtTime(.001,t+dur);g.gain.linearRampToValueAtTime(0,t+dur+.008);
  m.connect(mg);mg.connect(c.frequency);c.connect(g);g.connect(M.fm.o);conta(c);
  const fd=.01;c.start(t);m.start(t);c.stop(t+dur+fd);m.stop(t+dur+fd);ev(t,"fm");
 }
 function chapeu(t,f){if(voz>56)return;
  const n=ctx.createBufferSource(),h=ctx.createBiquadFilter(),g=ctx.createGain();
  n.buffer=noiseBuf;conta(n);h.type="highpass";h.frequency.value=7000;
- g.gain.setValueAtTime(P("hat","vol")*f*.5,t);g.gain.exponentialRampToValueAtTime(.001,t+.03+P("hat","queda")*.25*(f>=1?1.8:1));
- n.connect(h);h.connect(g);g.connect(M.hat.o);n.start(t);const fd=.01;n.stop(t+.3+fd);ev(t,"hat");gat("hat",t);
+ g.gain.setValueAtTime(P("hat","vol")*f*.5,t);const dh=.03+P("hat","queda")*.25*(f>=1?1.8:1);g.gain.exponentialRampToValueAtTime(.001,t+dh);g.gain.linearRampToValueAtTime(0,t+dh+.01);
+ n.connect(h);h.connect(g);g.connect(M.hat.o);n.start(t);const fd=.01;n.stop(t+dh+.02);ev(t,"hat");gat("hat",t);
 }
 let PS={k:{},b:{},h:{}},prox=0,timer,cnt=0;
 // o sequenciador avança um passo a cada gate recebido; cada trilha (k, b, h) tem comprimento e direção próprios; portas k, b, h, v
@@ -253,10 +259,11 @@ function passoSeq(t,dep){
  if(!S.k[ik])o({},"v");
  if(ib===nb-1&&Math.random()<P("seq","muta")*3){const j=Math.floor(Math.random()*nb);if(S.b[j]>=0)S.b[j]=[0,0,0,1,1,3,4][Math.floor(Math.random()*7)]}
 }
-let atrasoMax=0,ult=0;
-const relogio=()=>{try{const n=performance.now();if(ult)atrasoMax=Math.max(atrasoMax,n-ult-25);ult=n;
- if(prox<ctx.currentTime-.05)prox=ctx.currentTime+.05;
- while(prox<ctx.currentTime+.12){const sd=60/bpm/4,sw=P("clk","swing"),tt=clkT(cnt,prox,sd,sw),n=clkT(cnt+1,prox+sd,sd,sw)-tt;ev(tt,"clk");for(const s of clkSaidas(cnt,tt,n,sd))pulso("clk",s[1],{i:cnt,n:s[2]},s[0]);cnt++;prox+=sd}}catch(e){aviso("erro no relógio: "+e.message)}};
+let atrasoMax=0,ult=0,estouros=0,atrasoPico=0,vozPico=0;const JAN=.18;
+const DIAG=typeof location!=="undefined"&&/[?&]diag\b/.test(location.search||"");
+const relogio=()=>{try{const n=performance.now();if(ult){const a=n-ult-25;atrasoMax=Math.max(atrasoMax,a);atrasoPico=Math.max(atrasoPico,a)}ult=n;
+ if(prox<ctx.currentTime-.05){estouros++;prox=ctx.currentTime+.05}
+ while(prox<ctx.currentTime+JAN){const sd=60/bpm/4,sw=P("clk","swing"),tt=clkT(cnt,prox,sd,sw),n=clkT(cnt+1,prox+sd,sd,sw)-tt;ev(tt,"clk");for(const s of clkSaidas(cnt,tt,n,sd))pulso("clk",s[1],{i:cnt,n:s[2]},s[0]);cnt++;prox+=sd}}catch(e){aviso("erro no relógio: "+e.message)}};
 function panico(){
  if(!ctx||!pronto)return;
  master.gain.cancelScheduledValues(0);master.gain.setTargetAtTime(0,ctx.currentTime,.02);fbg.gain.value=0;wet.gain.value=0;
@@ -412,10 +419,10 @@ g.drawImage(bgc,0,0,W,H);if(beat>.02){g.globalAlpha=Math.min(1,beat);g.drawImage
 }
 const hud=document.getElementById("hud");
 setInterval(()=>{
- const fps=Math.round(fr*2);fr=0;if(fps<45&&playing)LQ=true;if(pm>1)clipAte=performance.now()+2500;
+ const fps=Math.round(fr*2);fr=0;if(voz>vozPico)vozPico=voz;if(fps<45&&playing)LQ=true;if(pm>1)clipAte=performance.now()+2500;
  const db=pm>0?Math.round(20*Math.log10(pm)):-99;pm=0;
  const lat=ctx?Math.round(((ctx.baseLatency||0)+(ctx.outputLatency||0))*1000):0;
- hud.textContent=fps+" fps · pico "+(db<-90?"—":db+" dB")+" · lat "+lat+" ms · vozes "+voz+" · relógio +"+Math.round(atrasoMax)+" ms · "+(ctx?(ok?"DSP worklet":"DSP nativo"+(FORCA_NATIVO?" (forçado)":!window.isSecureContext?" (origem não segura)":erroWk?" ("+erroWk+")":"")):"parado")+(LQ?" · visual leve":"");
+ hud.textContent=fps+" fps · pico "+(db<-90?"—":db+" dB")+" · lat "+lat+" ms · vozes "+voz+" · relógio +"+Math.round(atrasoMax)+" ms · "+(ctx?(ok?"DSP worklet":"DSP nativo"+(FORCA_NATIVO?" (forçado)":!window.isSecureContext?" (origem não segura)":erroWk?" ("+erroWk+")":"")):"parado")+(LQ?" · visual leve":"")+(DIAG?" · diag: estouros "+estouros+" · atraso pico "+Math.round(atrasoPico)+" ms · vozes pico "+vozPico+" · fila "+evs.length+" · ctx "+(ctx?ctx.state:"-"):"");
  atrasoMax=0;hud.classList.toggle("clip",performance.now()<clipAte);
 },500);
 quadro();

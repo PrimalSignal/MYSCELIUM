@@ -401,6 +401,28 @@ T('worklet: patch de fábrica toca 10 s simulados com nós de worklet sem erro',
   assert.ok(h.j('evs.filter(v=>v.m==="kick").length') > 10);
 });
 
+// ---------- v0.5.9: H2 corrigida ----------
+T('v0.5.9: reinício do LFO por gate não mexe na profundidade (m.o.gain) nem usa setTimeout', async () => {
+  const h = carrega(ARQ); await h.run('iniciar()'); h.run('reiniciaLfo("lfo1",1)');
+  assert.deepStrictEqual(h.j('M.lfo1.o.gain.calls.filter(c=>c[0]!=="setTargetAtTime"&&c[0]!=="cancelScheduledValues").length'), 0);
+  assert.ok(h.j('M.lfo1.og.gain.calls.length') >= 2); assert.strictEqual(h.j('M.lfo1.osc!==undefined'), true);
+});
+T('v0.5.9: dispEnv usa cancelAndHoldAtTime quando existe e não chama valueAtTime', async () => {
+  const h = carrega(ARQ); await h.run('iniciar()');
+  h.run('M.env1.cs.offset.cancelAndHoldAtTime=function(t){this.calls.push(["cancelAndHoldAtTime",t])};M.env1.cs.offset.valueAtTime=function(){throw new Error("valueAtTime não existe em AudioParam")}');
+  h.run('dispEnv("env1",1,{})'); const c = h.j('M.env1.cs.offset.calls');
+  assert.deepStrictEqual(c.map(x => x[0]), ['cancelAndHoldAtTime', 'linearRampToValueAtTime', 'setTargetAtTime']);
+});
+T('v0.5.9: sidechain do baixo desce em rampa de 4 ms (sem degrau) e volta em 0,2 s', async () => {
+  const h = carrega(ARQ); await h.run('iniciar()'); h.run('kick(1)');
+  const d = h.j('M.bass.o.gain.calls').filter(c => c[0] === 'linearRampToValueAtTime');
+  assert.ok(d.some(c => Math.abs(c[2] - 1.004) < 1e-9 && c[1] < 1) && d.some(c => Math.abs(c[2] - 1.2) < 1e-9 && c[1] === 1));
+});
+T('v0.5.9: fila de eventos visuais é limitada', async () => {
+  const h = carrega(ARQ); await h.run('iniciar()'); h.run('for(let i=0;i<5000;i++)ev(1e9,"kick")');
+  assert.ok(h.j('evs.length') <= 2000);
+});
+
 // ---------- execução ----------
 (async () => {
   let ok = 0, falha = 0;
