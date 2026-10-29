@@ -527,6 +527,19 @@ T('v0.7.4: menu recolhível guarda o estado fora do save do preset e começa com
   const h3 = carrega(ARQ, { micelio_menu: 'lixo' }); assert.strictEqual(h3.j('menuMin'), false);
 });
 
+T('v0.7.5: menu recolhido espalha a floresta pela tela e expandido volta à altura de antes', () => {
+  const h = carrega(ARQ);
+  const base = h.j('FH()'); assert.strictEqual(base, 800 * .54);
+  const y0 = h.j('pos(M.seq)[1]');
+  h.run('menuAlterna()'); for (let i = 0; i < 80; i++) h.run('fhPasso()');
+  const fim = h.j('FH()'); assert.strictEqual(fim, 800 - 88);
+  assert.ok(h.j('pos(M.seq)[1]') !== y0 || h.j('M.seq.y') === 0, 'os módulos deviam se espalhar na vertical');
+  const baixo = h.j('Math.max(...Object.keys(M).map(k=>pos(M[k])[1]))'); assert.ok(baixo <= 800 - 88 - 30, 'módulo fica atrás da faixa: ' + baixo);
+  h.run('menuAlterna()'); for (let i = 0; i < 80; i++) h.run('fhPasso()');
+  assert.strictEqual(h.j('FH()'), base); assert.strictEqual(h.j('pos(M.seq)[1]'), y0);
+  const h2 = carrega(ARQ, { micelio_menu: '1' }); assert.strictEqual(h2.j('FH()'), 800 - 88);
+});
+
 // ---------- execução ----------
 (async () => {
   let ok = 0, falha = 0;

@@ -1,5 +1,6 @@
 "use strict";
 /* CHANGELOG
+v0.7.5 (menu, visual): com o menu recolhido a floresta passa a ocupar a tela toda: a altura útil (FH) cresce com suavização de H*0,54 até H−88, então módulos, cipós, caules e partículas do espectro se espalham pelo espaço liberado (os caules nascem rente à faixa); expandido, tudo volta exatamente à posição de antes. Só visual; som, preset e saves inalterados.
 v0.7.4 (menu): o painel do módulo ganha um botão ▾/▴ no cabeçalho (ou toque no cabeçalho) que recolhe tudo numa faixa fina com o nome do módulo e libera o canvas; o estado fica em localStorage (micelio_menu) e não entra no save do preset (micelio42). Som, preset e saves inalterados.
 v0.7.3 (hats): o painel dos Esporos ganha swing (atraso dos passos ímpares só nos hats, 0–100% = de reto até swing de 75%, independente do swing do Pulsar-mãe), síncopa (chance de empurrar o hat meio passo para trás), humano (variação aleatória de tempo e de volume), tom (corte do passa-altas, 3–16 kHz) e metal (ressonância do filtro, com ganho compensado). Todos os padrões reproduzem o som da v0.7.2: swing, síncopa e humano em 0 (sem consumir sorteios), tom 0,5 = 7 kHz e metal 0,3 = Q 1. Saves antigos ganham os padrões ao carregar.
 v0.7.2 (só tipografia): a fonte padrão de toda a interface (painel, barra do topo, HUD, instruções e rótulos do canvas) passa a ser a Syne, sem itálico (a Syne não tem; font-synthesis desligado para não gerar oblíquo falso). Carrega de syne.woff na mesma pasta (funciona offline; tools/build.js embute o arquivo no HTML único) e, se esse arquivo não existir, do Google Fonts (index.html); sem nenhum dos dois cai em system-ui.
@@ -350,7 +351,10 @@ addEventListener("resize",tam);tam();
 function fundo(){bgc=document.createElement("canvas");flc=document.createElement("canvas");bgc.width=flc.width=W;bgc.height=flc.height=H;
  const a=bgc.getContext("2d"),b=flc.getContext("2d");let q=a.createRadialGradient(W/2,H*.4,10,W/2,H*.4,H*.8);q.addColorStop(0,"rgb(14,6,26)");q.addColorStop(1,"#05060a");a.fillStyle=q;a.fillRect(0,0,W,H);
  q=b.createRadialGradient(W/2,H*.4,10,W/2,H*.4,H*.8);q.addColorStop(0,"rgb(54,14,76)");q.addColorStop(1,"rgba(5,6,10,0)");b.fillStyle=q;b.fillRect(0,0,W,H)}
-const FH=()=>H*.54,PO=30;
+// v0.7.5: menu recolhido libera a tela; FH (altura útil da floresta) vai de H*.54 a H-88 com suavização, expandido é H*.54 como antes
+const fhAlvo=()=>menuMin?Math.max(H*.54,H-88):H*.54;let fhV=fhAlvo();
+const FH=()=>fhV,PO=30;
+function fhPasso(){const a=fhAlvo();fhV=Math.abs(a-fhV)<.5?a:fhV+(a-fhV)*.16}
 const pos=m=>[cam+28+m.x*(W*2-56),122+m.y*(FH()-160)];
 const pOut=(m,pt)=>{const [x,y]=pos(m);let dy=0;if(m.pts&&pt)dy=(m.pts.indexOf(pt)-(m.pts.length-1)/2)*30;return[x+PO,y+dy]};
 const pIn=m=>{const [x,y]=pos(m);return[x-PO,y]};
@@ -423,7 +427,7 @@ function cabo(a,b,cor,t,e,dash){
 }
 const bins=new Uint8Array(128),pb=new Float32Array(1024);let fr=0,pm=0,clipAte=0;
 function quadro(){
- const t=performance.now()/1000;
+ const t=performance.now()/1000;fhPasso();
  if(ctx)for(let i=0;i<evs.length;){if(evs[i].t<=ctx.currentTime){const v=evs.splice(i,1)[0];E[v.m]=1;if(v.m==="seq"&&v.tr)vis[v.tr]=v.i}else i++}
  for(const k in E)E[k]*=.93;
  for(const k of ["lfo1","lfo2"]){const m=M[k],ph=(ctx&&m.osc?ctx.currentTime-(m.rt||0):t)*Math.min(lfoHz(m.p,bpm),8);E[k]=.5+.5*Math.sin(ph*6.283)*m.p.prof}
