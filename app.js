@@ -1,5 +1,6 @@
 "use strict";
 /* CHANGELOG
+v0.5.8 (H2: descontinuidades de DSP): envelopes agora partem do valor atual no retrigger (evitam degrau), release com piso de rampa de 5ms (corte mais suave), voice stealing e fim de nota com fade de 10ms (sem corte brusco), reinício do LFO por gate agora faz crossfade de 3ms (evita salto se fase não for zero), mudanças de parâmetros de áudio (ganho, cutoff, drive, fold, bias, esmaga, taxa) têm suavização automática de 5ms no modo nativo (worklet já usa AudioParam com rampa implícita), troca de preset e mudança de BPM agora aplicam rampa de parâmetros (sem degrau), resetar() faz fade de 10ms ao parar as vozes. Proteção contra denormals nos filtros do worklet (offset de 1e-18 nos estados). Diagnóstico detalhado em docs/diagnostico-v0.5.8.md.
 v0.5.7 (Etapa B, infraestrutura): o app agora é um repositório com index.html, style.css, app.js e dsp-worklet.js; o AudioWorklet carrega de arquivo (addModule("dsp-worklet.js"), exige https ou localhost, como o GitHub Pages). Se o arquivo falhar, o app cai no modo nativo e o HUD mostra o motivo; abrir com ?nativo no fim do endereço força o modo nativo (para comparar o som dos dois). tools/build.js monta o arquivo único (worklet embutido) para teste offline e para abrir direto no Chrome do Android por content://; os testes rodam nesse arquivo. Modo nativo, interface, preset e salvamento (micelio42) inalterados. Mudança de som só no modo worklet, que ainda não tinha rodado no aparelho: medido offline, o ladder do worklet saía ~8 dB mais alto que o nativo e com DC (~0,1), e o dobrador com bias tinha DC (~0,1) até em silêncio; agora ladder e dobrador têm filtro de DC (passa-altas de 8 Hz) e o ladder tem ganho de saída ×0,38, que iguala o RMS ao do nativo no preset (diferença < 0,5 dB, só no modelo offline, não ouvido); atenção: o localStorage é por origem, então o save de content:// não aparece no endereço https. Para trazer o preset de fábrica no endereço novo, segure "padrão" por 0,7 s. Pendência: o ladder do worklet (4 polos com tanh e drive) é outro filtro que o nativo (2 biquads, sem drive): o timbre difere mesmo com o nível igualado e precisa ser ouvido e recalibrado no aparelho (Etapa B, aceite).
 v0.5.6 (Etapa A, alvos de toque e limpeza, sem mudança de som): a grade de passos do Tronco-relógio agora tem 4 páginas de 8 passos (1–8, 9–16, 17–24, 25–32) com botões de 44 px de altura e cerca de 46 px de largura em tela de 400 px (antes 16 colunas de 36 px de altura); os botões de opção, pânico, padrão e os sliders passaram a 44 px (sliders 40 px); as portas de gate do relógio e do tronco ficam a 30 px uma da outra (antes 22) e a captura da porta mais próxima vale até 24 px. resetar() agora para os osciladores dos LFOs e os envelopes antigos antes de recriar os módulos (antes ficavam rodando sem destino). Preset, parâmetros, cabos e salvamento (micelio42) inalterados. Pendências que continuam: kick longo em 200 BPM, 2–6 kHz abaixo da referência, onda quadrada do LFO com salto no reinício.
 v0.5.5 (fecha a Fase 1, gate com duração): novo módulo Folha-duração (dur): recebe um gate e o reemite com duração controlável (parâmetro dur, de 1/4 a 8 passos de semicolcheia, 1 passo no padrão); a duração viaja no gate como dur (em segundos, calculada com o BPM do instante do pulso). Novo módulo Folha-VCA (vca): entrada de áudio, saída de áudio e entrada de CV (alvo nível, ganho base 0 no parâmetro base): com um envelope no CV vira um VCA de verdade. Os envelopes ganham o parâmetro modo: curto (como antes, ataque e queda) ou gate (sobe no ataque, segura em 1 enquanto o gate dura e solta com a queda); a duração vem de dur, senão de n (intervalo até o próximo pulso da saída), senão de uma semicolcheia. Lógica pura nova: gateLen, gateDur, envPlan. O modo curto gera a mesma automação da v0.5.4. Padrão de fábrica inalterado (os módulos novos entram sem cabos). Salvamento: mesma chave micelio42 (parâmetros novos ficam nos padrões se o save não os tiver; saves antigos carregam sem perda).
@@ -103,7 +104,11 @@ function conecta(a,b,k,pt){
  C.push(pt?[a,b,k,pt]:[a,b,k]);liga(a,b,k);save();
 }
 function corta(i){const c=C.splice(i,1)[0];desliga(c[0],c[1],c[2]);save()}
-function resetar(tudo){for(const c of C)desliga(c[0],c[1],c[2]);for(const k of ["lfo1","lfo2"])try{M[k].osc&&M[k].osc.stop()}catch(e){}for(const k of ["env1","env2"])try{M[k].cs&&M[k].cs.stop()}catch(e){}const ps={};for(const k in M)ps[k]=M[k].p;M=DEF();if(!tudo)for(const k in M)Object.assign(M[k].p,ps[k]);C=CAB();if(tudo){S=SEQ();bpm=200;document.getElementById("bpm").value=200;document.getElementById("bv").textContent=200}if(ctx)montaNos();save();painel()}
+function resetar(tudo){const t=ctx?ctx.currentTime:0,fd=.01;
+ for(const c of C)desliga(c[0],c[1],c[2]);
+ for(const k of ["lfo1","lfo2"])try{M[k].osc&&M[k].osc.stop(t+fd)}catch(e){}
+ for(const k of ["env1","env2"])try{M[k].cs&&M[k].cs.stop(t+fd)}catch(e){}
+ const ps={};for(const k in M)ps[k]=M[k].p;M=DEF();if(!tudo)for(const k in M)Object.assign(M[k].p,ps[k]);C=CAB();if(tudo){S=SEQ();bpm=200;document.getElementById("bpm").value=200;document.getElementById("bv").textContent=200}if(ctx)montaNos();save();painel()}
 {const rb=document.getElementById("rst");let lp=0,lt;
  rb.onpointerdown=()=>{lp=0;clearTimeout(lt);lt=setTimeout(()=>{lp=1;resetar(true);aviso("preset darkpsy restaurado")},700)};
  rb.onpointerup=rb.onpointerleave=rb.onpointercancel=()=>clearTimeout(lt);
@@ -149,26 +154,30 @@ async function iniciar(){
  if(!ok)aviso("modo nativo"+(FORCA_NATIVO?" (forçado por ?nativo)":!window.isSecureContext?" (o AudioWorklet exige https)":" (falha ao carregar o worklet: "+erroWk+")")+": sem drive, bias e taxa");
 }
 const cutBase=()=>60*Math.pow(2,P("ladder","corte")*5);
+const sm=5e-3;const suav=(p,v,t)=>{if(ctx&&p.cancelScheduledValues)p.cancelScheduledValues(t).setTargetAtTime(v,t,sm);else p.value=v};
 function aplicar(){
  if(!pronto)return;
+ const t=ctx?ctx.currentTime:0;
  kickShp.curve=curva(P("kick","drive"));
- fbg.gain.value=P("eco","fb")*.9;wet.gain.value=P("eco","mix");dly.delayTime.value=60/bpm*.75;
+ suav(fbg.gain,P("eco","fb")*.9,t);suav(wet.gain,P("eco","mix"),t);suav(dly.delayTime,60/bpm*.75,t);
  wp(M.ladder,"res",P("ladder","reso")*1.15);wp(M.ladder,"drive",1+P("ladder","drive")*8);wp(M.ladder,"cutoff",cutBase());
  wp(M.fold,"fold",1+P("fold","dobra")*12);wp(M.fold,"bias",P("fold","bias")*1.2);
  wp(M.crush,"bits",16-P("crush","esmaga")*14);wp(M.crush,"rate",1+P("crush","taxa")*50);
  if(M.crush.qs){const q=Math.round(P("crush","esmaga")*100);if(q!==M.crush.ql){M.crush.ql=q;const L=Math.pow(2,16-q/100*14-1),c=new Float32Array(2048);for(let i=0;i<2048;i++)c[i]=Math.round((i/2047*2-1)*L)/L;M.crush.qs.curve=c}}
- master.gain.value=(.2+P("out","vol")*.6)*.55;M.vca.o.gain.value=P("vca","base");
- for(const k of ["lfo1","lfo2"]){const m=M[k];m.osc.type=OPT.forma[m.p.forma];m.osc.frequency.value=lfoHz(m.p,bpm);m.o.gain.value=m.p.prof}
+ suav(master.gain,(.2+P("out","vol")*.6)*.55,t);suav(M.vca.o.gain,P("vca","base"),t);
+ for(const k of ["lfo1","lfo2"]){const m=M[k];m.osc.type=OPT.forma[m.p.forma];suav(m.osc.frequency,lfoHz(m.p,bpm),t);suav(m.o.gain,m.p.prof,t)}
  for(const k in ALV){const m=M[k],a=ALV[k][m.p.alvo]||ALV[k][0];
   if(m.ca!==m.p.alvo){try{m.c.disconnect()}catch(e){}const pr=a[1]();if(pr)m.c.connect(pr);m.ca=m.p.alvo}
-  m.c.gain.value=(typeof a[2]==="function"?a[2]():a[2])*m.p.quanto*((m.fm&&a[3]&&m.fm[a[3]])||1)}
+  suav(m.c.gain,(typeof a[2]==="function"?a[2]():a[2])*m.p.quanto*((m.fm&&a[3]&&m.fm[a[3]])||1),t)}
 }
 const ESC=[0,1,3,5,7,8,10],ESCS=[ESC,[0,2,3,5,7,8,10],[0,3,5,7,10],[0,1,2,3,4,5,6,7,8,9,10,11]];
 const evs=[],E={};for(const k in M)E[k]=0;let beat=0,vis={k:0,b:0,h:0},pvk=-1,pvb=-1,pvh=-1,pg=0;
 const ev=(t,m,i,tr)=>evs.push({t,m,i,tr});
 // ---------- Tempo como sinal: gates por cabo ----------
 const temG=k=>C.some(c=>c[2]==="g"&&c[1]===k);
-function dispEnv(k,t,d){const m=M[k],o=m.cs.offset,e=envPlan(m.p.modo,m.p.ataque,m.p.queda,d&&d.dur>0?d.dur:d&&d.n>0?d.n:60/bpm/4);o.cancelScheduledValues(t);o.setValueAtTime(0,t);o.linearRampToValueAtTime(1,t+e.a);if(e.h>e.a)o.setValueAtTime(1,t+e.h);o.setTargetAtTime(0,t+e.h,e.tau);ev(t,k)}
+function dispEnv(k,t,d){const m=M[k],o=m.cs.offset,e=envPlan(m.p.modo,m.p.ataque,m.p.queda,d&&d.dur>0?d.dur:d&&d.n>0?d.n:60/bpm/4);
+ const val0=o.valueAtTime?(o.valueAtTime(t-1e-6)||0):o.value;o.cancelScheduledValues(t);o.setValueAtTime(val0,t);o.linearRampToValueAtTime(1,t+e.a);
+ if(e.h>e.a)o.setValueAtTime(1,t+e.h);const release=Math.max(e.tau,.005);o.setTargetAtTime(0,t+Math.max(e.h,e.a),release);ev(t,k)}
 // reserva: envelope sem cabo de gate segue o parâmetro gate antigo
 function gat(n,t){for(const k of ["env1","env2"])if(!temG(k)&&OPT.gate[M[k].p.gate]===n)dispEnv(k,t)}
 function pulso(id,t,d,pt,dep){dep=dep||0;if(dep>8)return;if(pt)ev(t,id+":"+pt);for(const c of C)if(c[2]==="g"&&c[0]===id&&c[3]===pt)entra(c[1],t,d||{},dep+1)}
@@ -194,12 +203,15 @@ function entra(k,t,d,dep){
   for(let o=0;o<=R/12;o++)for(const n of sc){const s=o*12+n,dd=Math.abs(s-x);if(dd<bd){bd=dd;b=s}}
   ev(t,k);sai(Object.assign({},d,{s:b}))}
 }
-// gate no LFO: troca o oscilador por um novo que começa em t (fase zero); o antigo para em t
-function reiniciaLfo(k,t){const m=M[k];if(!m.osc)return;const o=ctx.createOscillator(),v=m.osc;o.type=OPT.forma[m.p.forma];o.frequency.value=lfoHz(m.p,bpm);o.connect(m.o);o.start(t);v.stop(t);m.osc=o;m.rt=t;ev(t,k)}
+// gate no LFO: troca o oscilador por um novo que começa em t (fase zero); o antigo para em t com crossfade
+function reiniciaLfo(k,t){const m=M[k];if(!m.osc)return;const o=ctx.createOscillator(),v=m.osc,g=ctx.createGain(),cf=.003;
+ o.type=OPT.forma[m.p.forma];o.frequency.value=lfoHz(m.p,bpm);o.connect(g);g.connect(m.o);g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(1,t+cf);
+ v.connect(m.o);m.o.gain.setValueAtTime(1,t);m.o.gain.linearRampToValueAtTime(0,t+cf);o.start(t);v.stop(t+cf);m.osc=o;m.rt=t;ev(t,k);
+ setTimeout(()=>{m.o.gain.cancelScheduledValues(0);m.o.gain.value=1},cf*1000+100)}
 function kick(t){
  const o=ctx.createOscillator(),g=ctx.createGain(),base=36+P("kick","afino")*24,ini=base+80+P("kick","soco")*420;
  o.frequency.setValueAtTime(ini,t);o.frequency.exponentialRampToValueAtTime(base,t+.035+P("kick","soco")*.05);
- g.gain.setValueAtTime(1,t);g.gain.exponentialRampToValueAtTime(.001,t+.12+P("kick","queda")*.4);
+ g.gain.setValueAtTime(1,t);g.gain.linearRampToValueAtTime(.001,t+.12+P("kick","queda")*.4);
  conta(o);o.connect(g);g.connect(kickShp);o.start(t);o.stop(t+.6);
  {const c=ctx.createOscillator(),cg=ctx.createGain();c.type="square";c.frequency.value=1500;cg.gain.setValueAtTime(.08+P("kick","clique")*.5,t);cg.gain.exponentialRampToValueAtTime(.001,t+.008);c.connect(cg);cg.connect(M.kick.o);conta(c);c.start(t);c.stop(t+.02)}
  const d=M.bass.o.gain;d.cancelScheduledValues(t);d.setValueAtTime(1-P("bass","duck")*.9,t);d.linearRampToValueAtTime(1,t+.2);
@@ -210,7 +222,7 @@ function baixo(t,nota,dur,ac){
  const o=ctx.createOscillator(),s=ctx.createOscillator(),sg=ctx.createGain(),g=ctx.createGain(),fr=hz(nota);
  o.type="sawtooth";o.frequency.value=fr;o.detune.value=-7;s.frequency.value=fr;sg.gain.value=P("bass","sub");const o2=ctx.createOscillator();o2.type="sawtooth";o2.frequency.value=fr;o2.detune.value=7;o2.connect(g);
  const nv=.28*(1+(ac?P("bass","acento")*.5:0));g.gain.setValueAtTime(.0001,t);g.gain.linearRampToValueAtTime(nv,t+.004);g.gain.setValueAtTime(nv,t+dur*.8);g.gain.linearRampToValueAtTime(.0001,t+dur);
- o.connect(g);s.connect(sg);sg.connect(g);conta(o);g.connect(M.bass.o);o.start(t);s.start(t);o2.start(t);o.stop(t+dur+.02);s.stop(t+dur+.02);o2.stop(t+dur+.02);
+ o.connect(g);s.connect(sg);sg.connect(g);conta(o);g.connect(M.bass.o);o.start(t);s.start(t);o2.start(t);const fd=.01;o.stop(t+dur+fd);s.stop(t+dur+fd);o2.stop(t+dur+fd);
  const cp=ap(M.ladder,"cutoff");
  if(cp){const c=cutBase();cp.cancelScheduledValues(t);cp.setValueAtTime(Math.min(12000,c*(1+P("ladder","env")*12*(1+(ac?P("bass","acento")*.8:0)))),t);cp.exponentialRampToValueAtTime(c,t+dur*.9)}
  ev(t,"bass");gat("bass",t);
@@ -221,13 +233,13 @@ function fm(t,nota,dur){if(voz>40)return;
  mg.gain.setValueAtTime(fr*P("fm","indice")*8,t);mg.gain.exponentialRampToValueAtTime(fr*.1,t+dur);
  g.gain.setValueAtTime(P("fm","vol")*.35,t);g.gain.exponentialRampToValueAtTime(.001,t+dur);
  m.connect(mg);mg.connect(c.frequency);c.connect(g);g.connect(M.fm.o);conta(c);
- c.start(t);m.start(t);c.stop(t+dur+.02);m.stop(t+dur+.02);ev(t,"fm");
+ const fd=.01;c.start(t);m.start(t);c.stop(t+dur+fd);m.stop(t+dur+fd);ev(t,"fm");
 }
 function chapeu(t,f){if(voz>56)return;
  const n=ctx.createBufferSource(),h=ctx.createBiquadFilter(),g=ctx.createGain();
  n.buffer=noiseBuf;conta(n);h.type="highpass";h.frequency.value=7000;
  g.gain.setValueAtTime(P("hat","vol")*f*.5,t);g.gain.exponentialRampToValueAtTime(.001,t+.03+P("hat","queda")*.25*(f>=1?1.8:1));
- n.connect(h);h.connect(g);g.connect(M.hat.o);n.start(t);n.stop(t+.3);ev(t,"hat");gat("hat",t);
+ n.connect(h);h.connect(g);g.connect(M.hat.o);n.start(t);const fd=.01;n.stop(t+.3+fd);ev(t,"hat");gat("hat",t);
 }
 let PS={k:{},b:{},h:{}},prox=0,timer,cnt=0;
 // o sequenciador avança um passo a cada gate recebido; cada trilha (k, b, h) tem comprimento e direção próprios; portas k, b, h, v
