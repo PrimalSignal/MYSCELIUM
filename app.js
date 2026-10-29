@@ -1,5 +1,6 @@
 "use strict";
 /* CHANGELOG
+v0.7.2 (só tipografia): a fonte padrão de toda a interface (painel, barra do topo, HUD, instruções e rótulos do canvas) passa a ser a Syne, sem itálico (a Syne não tem; font-synthesis desligado para não gerar oblíquo falso). Carrega de syne.woff na mesma pasta (funciona offline; tools/build.js embute o arquivo no HTML único) e, se esse arquivo não existir, do Google Fonts (index.html); sem nenhum dos dois cai em system-ui.
 v0.7.1: corrige a v0.7.0 (3 testes do painel falhavam): as abas de página voltam a ter className exato "opt" (o estilo de aba agora vem de data-pg) e o teste do Raiz-baixo aceita o rótulo do slider sem o valor colado (o valor agora é um elemento à parte). Sem mudança visual nem de som.
 v0.7.0 (só visual do painel de opções, sem mudança de som nem de dados): o painel herda a cor do módulo (variável CSS --c, via m.cor); sliders viram fio fino com nó e valor em mono à direita (sem valor formatado mostra 0–100); botões de opção viram pílulas, células dos passos ganham cantos de folha e brilho na cor do módulo (acabou o amarelo único); cada linha de passos tem rótulo (kick, baixo, oitava, chapéu, acento); abas de página mais discretas; fundo do painel translúcido com desfoque. Mesmos nomes de classe e mesmos handlers da v0.6.1.
 v0.6.1: o painel do Raiz-baixo agora também edita as notas do baixo (nome da nota, oitava e acento por passo, páginas, raiz, escala, comprimento e direção da trilha do baixo), sem precisar abrir o Tronco-relógio; mesmo dado, mesmas teclas.
@@ -289,6 +290,7 @@ async function alternar(){
 document.getElementById("play").onclick=alternar;
 const bi=document.getElementById("bpm");bi.oninput=()=>{bpm=+bi.value;document.getElementById("bv").textContent=bpm;aplicar()};
 
+const FONTE='"SyneLocal","Syne",system-ui,sans-serif';
 // ---------- Painel ----------
 const TR=[["kick","k",1,v=>v?"●":""],["baixo","b",0,(v,i)=>v<0?"":nomeN(raizM()+nota(escSeq(),v,S.o[i]))],["oitava","o",0,v=>v?(v>0?"+":"−")+Math.abs(v):"","b"],["chapéu","h",2,v=>["","·","○"][v]],["acento","a",1,v=>v?"▲":"","b"]];
 let pintas=[];
@@ -393,7 +395,7 @@ function planta(k,m,t){
  if(m.o){const [px,py]=pOut(m),q=drag===k?3:0;g.fillStyle=rgba(c,.9);g.strokeStyle="#000";g.beginPath();
   if(m.p.prof!==undefined||m.p.gate!==undefined)g.rect(px-7-q,py-7-q,14+2*q,14+2*q);else g.arc(px,py,7+q,0,7);g.fill()}
  if(m.g&&!m.o&&!m.pts){const [px,py]=pOut(m);g.fillStyle=rgba(c,.95);tri(px,py,7+(drag===k?3:0));g.fill()}
- if(m.pts)m.pts.forEach(pt=>{const [px,py]=pOut(m,pt);g.fillStyle=rgba(PC[pt],.95);tri(px,py,5+(E[k+":"+pt]||0)*3+(drag===k&&dport===pt?3:0));g.fill();g.font="9px Georgia";g.fillStyle="#d8f5ea";g.fillText(pt,px+9,py+3)});
+ if(m.pts)m.pts.forEach(pt=>{const [px,py]=pOut(m,pt);g.fillStyle=rgba(PC[pt],.95);tri(px,py,5+(E[k+":"+pt]||0)*3+(drag===k&&dport===pt?3:0));g.fill();g.font="9px "+FONTE;g.fillStyle="#d8f5ea";g.fillText(pt,px+9,py+3)});
  if(m.i){const [px,py]=pIn(m);g.strokeStyle=rgba(c,.95);g.fillStyle="#05060a";g.beginPath();g.arc(px,py,7,0,7);g.fill();g.stroke()}
  if(m.gi){const [px,py]=pGi(m);g.strokeStyle=rgba(c,.95);g.fillStyle="#05060a";tri(px,py,7);g.fill();g.stroke()}
  if(ALV[k]){const [px,py]=pCv(m);g.strokeStyle=rgba(c,.95);g.fillStyle="#05060a";g.beginPath();g.moveTo(px,py-8);g.lineTo(px+8,py);g.lineTo(px,py+8);g.lineTo(px-8,py);g.closePath();g.fill();g.stroke()}

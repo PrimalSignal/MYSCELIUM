@@ -5,7 +5,14 @@
 const fs = require('fs'), path = require('path');
 const raiz = path.join(__dirname, '..');
 const ler = f => fs.readFileSync(path.join(raiz, f), 'utf8');
-const html = ler('index.html'), css = ler('style.css'), app = ler('app.js'), wk = ler('dsp-worklet.js');
+const html = ler('index.html'), css0 = ler('style.css'), app = ler('app.js'), wk = ler('dsp-worklet.js');
+// Fonte Syne: se syne.woff existir, entra no CSS como data URI (o arquivo único funciona offline); senão avisa e segue.
+const FONTE = path.join(raiz, 'syne.woff'), REF = 'url("syne.woff")';
+let css = css0;
+if (css0.includes(REF)) {
+  if (fs.existsSync(FONTE)) css = css0.split(REF).join('url(data:font/woff;base64,' + fs.readFileSync(FONTE).toString('base64') + ')');
+  else console.warn('aviso: syne.woff não encontrado; o arquivo único usa a fonte reserva (o site usa o Google Fonts se houver internet)');
+}
 
 const LINK = '<link rel="stylesheet" href="style.css">', SCRIPT = '<script src="app.js"></script>';
 for (const [nome, marca] of [['link do CSS', LINK], ['script do app', SCRIPT]])
