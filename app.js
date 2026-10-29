@@ -1,5 +1,6 @@
 "use strict";
 /* CHANGELOG
+v0.6.0 (controle de notas, sem mudança de som no preset): (1) cada passo do baixo agora tem nota (grau da escala escolhida, mostrado como nome da nota, por exemplo E2) e oitava própria (nova linha "oitava", de −1 a +2); o salto de oitava que era automático a cada 8º passo virou dado por passo e saves antigos ganham os mesmos saltos ao carregar (normS), então o som do preset não muda. (2) o Tronco-relógio ganha "escala" (frígia, menor, pentat., cromática): em cromática cada passo é um semitom; graus além do tamanho da escala sobem uma oitava. (3) o slider raiz mostra o nome da nota. (4) Samambaia-FM ganha "notas" (sorteio, como antes, ou segue baixo, 2 oitavas acima da última nota do baixo) e "transp" (−24 a +24 semitones). O sorteio do FM passa a usar a escala escolhida. Salvamento: mesma chave micelio42 (compatível nos dois sentidos: a v0.5.9 ignora os campos novos; parâmetros novos ficam nos padrões se o save não os tiver). Lógica pura nova: nota.
 v0.5.9 (corrige a H2 da v0.5.8; ?diag): (1) o reinício do LFO por gate usava o ganho de profundidade (m.o.gain) como fade e depois o forçava a 1 num setTimeout: o LFO sumia por ~0,1 s e a profundidade do patch era ignorada; agora cada oscilador tem o próprio ganho de crossfade e m.o.gain fica só com a profundidade. (2) dispEnv chamava valueAtTime, que não existe em AudioParam; agora usa cancelAndHoldAtTime (com reserva para navegadores sem ele). (3) a queda do kick volta a ser exponencial (a v0.5.8 a trocou por linear sem avisar) e termina em zero. (4) o sidechain do baixo e do FM desce em 4 ms em vez de dar degrau. (5) chapéu e FM terminam em zero (o chapéu era cortado em 0,3 s com queda longa). (6) janela de agendamento do relógio de 120 para 180 ms (aguenta travadas de até ~150 ms na thread principal). (7) worklet: valores de parâmetro constantes agora são suavizados em 5 ms dentro do processador (antes atribuir param.value era um degrau) e estados são zerados quando ficam minúsculos (denormais). (8) lista de eventos visuais limitada. (9) ?diag no fim do endereço mostra no HUD estouros do relógio, atraso de pico, vozes de pico e tamanho da fila. Preset, parâmetros, cabos e salvamento (micelio42) inalterados.
 v0.5.8 (H2: descontinuidades de DSP): envelopes agora partem do valor atual no retrigger (evitam degrau), release com piso de rampa de 5ms (corte mais suave), voice stealing e fim de nota com fade de 10ms (sem corte brusco), reinício do LFO por gate agora faz crossfade de 3ms (evita salto se fase não for zero), mudanças de parâmetros de áudio (ganho, cutoff, drive, fold, bias, esmaga, taxa) têm suavização automática de 5ms no modo nativo (worklet já usa AudioParam com rampa implícita), troca de preset e mudança de BPM agora aplicam rampa de parâmetros (sem degrau), resetar() faz fade de 10ms ao parar as vozes. Proteção contra denormals nos filtros do worklet (offset de 1e-18 nos estados). Diagnóstico detalhado em docs/diagnostico-v0.5.8.md.
 v0.5.7 (Etapa B, infraestrutura): o app agora é um repositório com index.html, style.css, app.js e dsp-worklet.js; o AudioWorklet carrega de arquivo (addModule("dsp-worklet.js"), exige https ou localhost, como o GitHub Pages). Se o arquivo falhar, o app cai no modo nativo e o HUD mostra o motivo; abrir com ?nativo no fim do endereço força o modo nativo (para comparar o som dos dois). tools/build.js monta o arquivo único (worklet embutido) para teste offline e para abrir direto no Chrome do Android por content://; os testes rodam nesse arquivo. Modo nativo, interface, preset e salvamento (micelio42) inalterados. Mudança de som só no modo worklet, que ainda não tinha rodado no aparelho: medido offline, o ladder do worklet saía ~8 dB mais alto que o nativo e com DC (~0,1), e o dobrador com bias tinha DC (~0,1) até em silêncio; agora ladder e dobrador têm filtro de DC (passa-altas de 8 Hz) e o ladder tem ganho de saída ×0,38, que iguala o RMS ao do nativo no preset (diferença < 0,5 dB, só no modelo offline, não ouvido); atenção: o localStorage é por origem, então o save de content:// não aparece no endereço https. Para trazer o preset de fábrica no endereço novo, segure "padrão" por 0,7 s. Pendência: o ladder do worklet (4 polos com tanh e drive) é outro filtro que o nativo (2 biquads, sem drive): o timbre difere mesmo com o nível igualado e precisa ser ouvido e recalibrado no aparelho (Etapa B, aceite).
@@ -36,7 +37,8 @@ function proximo(st,n,dir){
  if(dir===1){st.i=i>0?i-1:n-1;return i}
  if(dir===2){let d=st.d||1;if(n<2){st.i=0;return 0}if(d>0&&i>=n-1)d=-1;else if(d<0&&i<=0)d=1;st.i=i+d;st.d=d;return i}
  st.i=(i+1)%n;return i}
-function normS(s){const f=(a,pad,lo,hi)=>{const r=[];for(let i=0;i<32;i++){const x=Array.isArray(a)&&typeof a[i]==="number"&&isFinite(a[i])?Math.round(a[i]):pad;r.push(Math.min(hi,Math.max(lo,x)))}return r};s=s||{};return{k:f(s.k,0,0,1),b:f(s.b,-1,-1,6),h:f(s.h,0,0,2),a:f(s.a,0,0,1)}}
+function normS(s){const f=(a,pad,lo,hi)=>{const r=[];for(let i=0;i<32;i++){const x=Array.isArray(a)&&typeof a[i]==="number"&&isFinite(a[i])?Math.round(a[i]):pad;r.push(Math.min(hi,Math.max(lo,x)))}return r};s=s||{};return{k:f(s.k,0,0,1),b:f(s.b,-1,-1,11),h:f(s.h,0,0,2),a:f(s.a,0,0,1),o:Array.isArray(s.o)?f(s.o,0,-1,2):Array.from({length:32},(_,i)=>i%8===7?1:0)}}
+const nota=(sc,d,o)=>sc[d%sc.length]+12*(Math.floor(d/sc.length)+(o||0));
 const gateLen=v=>.25*Math.pow(32,Math.min(1,Math.max(0,+v||0)));
 const gateDur=(v,sd)=>sd*gateLen(v);
 const envPlan=(modo,ataque,queda,dur)=>{const a=.002+ataque*.2,tau=.02+queda*.5;return{a,h:modo&&dur>a?dur:a,tau}};
@@ -55,18 +57,18 @@ const ALV={
  crush:[["bits",()=>ap(M.crush,"bits"),-8],["taxa",()=>ap(M.crush,"rate"),40]],
  eco:[["mix",()=>wet.gain,.5],["fb",()=>fbg.gain,.4]],out:[["vol",()=>master.gain,.5]],vca:[["nível",()=>M.vca.o.gain,2]]
 };
-const OPT={gate:["kick","bass","hat","passo"],forma:["sine","triangle","square","sawtooth"],divisao:["÷2","÷3","÷4","÷8","×2","×3"],escala:["frígia","menor","pentat.","cromática"],sync:["livre","bpm"],modo:["curto","gate"],ciclo:["1/16","1/8","1/4","1/2","1c","2c","4c","8c"],dirk:["→","←","↔","?"],dirb:["→","←","↔","?"],dirh:["→","←","↔","?"]};
+const OPT={gate:["kick","bass","hat","passo"],forma:["sine","triangle","square","sawtooth"],divisao:["÷2","÷3","÷4","÷8","×2","×3"],escala:["frígia","menor","pentat.","cromática"],sync:["livre","bpm"],modo:["curto","gate"],ciclo:["1/16","1/8","1/4","1/2","1c","2c","4c","8c"],dirk:["→","←","↔","?"],dirb:["→","←","↔","?"],dirh:["→","←","↔","?"],notas:["sorteio","segue baixo"]};
 const opts=(k,n)=>n==="alvo"?ALV[k].map(a=>a[0]):OPT[n];
 // o:1 = tem saída de áudio/CV, g:1 = emite gate, gi:1 = aceita gate, i:1 = entrada de áudio
 const DEF=()=>{const m={
  kick:{nome:"Cogumelo-kick",cor:"#ff2e93",x:.04,y:0,o:1,g:1,gi:1,p:{queda:.2,soco:.08,drive:.45,afino:.78,clique:.74}},
  bass:{nome:"Raiz-baixo",cor:"#b14cff",x:.04,y:.33,o:1,g:1,gi:1,p:{duck:.8,sub:.77,acento:.5}},
- fm:{nome:"Samambaia-FM",cor:"#2dffe0",x:.04,y:.66,o:1,g:1,gi:1,p:{razao:.4,indice:.35,vol:.28}},
+ fm:{nome:"Samambaia-FM",cor:"#2dffe0",x:.04,y:.66,o:1,g:1,gi:1,p:{razao:.4,indice:.35,vol:.28,notas:0,transp:.5}},
  hat:{nome:"Esporos",cor:"#e8ff5a",x:.04,y:1,o:1,g:1,gi:1,p:{vol:.8,queda:.3,ghost:.25}},
  ladder:{nome:"Trepadeira-ladder",cor:"#9dff6a",x:.2,y:.08,i:1,o:1,p:{corte:.55,reso:.5,env:.6,drive:.45}},
  fold:{nome:"Cipó dobrador",cor:"#ff9a3c",x:.2,y:.4,i:1,o:1,p:{dobra:.4,bias:.1}},
  crush:{nome:"Musgo pixelado",cor:"#6aa8ff",x:.2,y:.7,i:1,o:1,p:{esmaga:.3,taxa:.2}},
- seq:{nome:"Tronco-relógio (toque nas células)",cor:"#ffd24a",x:.2,y:1,g:1,gi:1,pts:["k","b","h","v"],p:{muta:.1,raiz:.75,compk:15/31,compb:15/31,comph:15/31,dirk:0,dirb:0,dirh:0}},
+ seq:{nome:"Tronco-relógio (toque nas células)",cor:"#ffd24a",x:.2,y:1,g:1,gi:1,pts:["k","b","h","v"],p:{muta:.1,raiz:.75,escala:0,compk:15/31,compb:15/31,comph:15/31,dirk:0,dirb:0,dirh:0}},
  lfo1:{nome:"Vaga-lume LFO 1",cor:"#7dffb0",x:.36,y:.05,o:1,gi:1,p:{taxa:.35,forma:0,prof:.4,sync:0,ciclo:4}},
  lfo2:{nome:"Vaga-lume LFO 2",cor:"#7dffb0",x:.36,y:.35,o:1,gi:1,p:{taxa:.42,forma:1,prof:.6,sync:0,ciclo:4}},
  env1:{nome:"Pulso ENV 1",cor:"#ff6e6e",x:.36,y:.65,o:1,gi:1,p:{ataque:.05,queda:.35,gate:0,modo:0}},
@@ -173,6 +175,7 @@ function aplicar(){
   suav(m.c.gain,(typeof a[2]==="function"?a[2]():a[2])*m.p.quanto*((m.fm&&a[3]&&m.fm[a[3]])||1),t)}
 }
 const ESC=[0,1,3,5,7,8,10],ESCS=[ESC,[0,2,3,5,7,8,10],[0,3,5,7,10],[0,1,2,3,4,5,6,7,8,9,10,11]];
+const escSeq=()=>ESCS[P("seq","escala")]||ESC,NN=["C","C♯","D","D♯","E","F","F♯","G","G♯","A","A♯","B"],nomeN=m=>NN[m%12]+(Math.floor(m/12)-1),raizM=()=>31+Math.round(P("seq","raiz")*12);let ultB=40;
 const evs=[],E={};for(const k in M)E[k]=0;let beat=0,vis={k:0,b:0,h:0},pvk=-1,pvb=-1,pvh=-1,pg=0;
 const ev=(t,m,i,tr)=>{evs.push({t,m,i,tr});if(evs.length>2000)evs.splice(0,1000)};
 // ---------- Tempo como sinal: gates por cabo ----------
@@ -189,9 +192,9 @@ function entra(k,t,d,dep){
  const sai=(x,pt)=>pulso(k,t,x||d,pt,dep),sn=()=>{const o=Object.assign({},d);delete o.n;return o};
  if(k==="seq")passoSeq(t,dep);
  else if(k==="kick"){if(voz<70){kick(t);sai()}}
- else if(k==="bass"){if(voz<70){baixo(t,raiz+(d.s||0),sd*.9,d.ac);sai()}}
+ else if(k==="bass"){if(voz<70){ultB=raiz+(d.s||0);baixo(t,ultB,sd*.9,d.ac);sai()}}
  else if(k==="hat"){chapeu(t,d.a||1);sai()}
- else if(k==="fm"){fm(t,raiz+29+(d.s!==undefined?d.s:ESC[Math.floor(Math.random()*7)]+(Math.random()<.3?12:0)),sd*(2+Math.random()*4));sai()}
+ else if(k==="fm"){const e=escSeq(),tr=Math.round((P("fm","transp")-.5)*48),nt=P("fm","notas")===1?ultB+24:raiz+29+(d.s!==undefined?d.s:e[Math.floor(Math.random()*e.length)]+(Math.random()<.3?12:0));fm(t,nt+tr,sd*(2+Math.random()*4));sai()}
  else if(k==="lfo1"||k==="lfo2")reiniciaLfo(k,t);
  else if(k==="env1"||k==="env2")dispEnv(k,t,d);
  else if(k==="div"){const r=m.p.divisao;
@@ -254,7 +257,7 @@ function passoSeq(t,dep){
   ik=proximo(PS.k,comp(P("seq","compk")),P("seq","dirk")),ib=proximo(PS.b,nb,P("seq","dirb")),ih=proximo(PS.h,comp(P("seq","comph")),P("seq","dirh"));
  ev(t,"seq",ik,"k");ev(t,"seq",ib,"b");ev(t,"seq",ih,"h");gat("passo",t);
  if(S.k[ik])o({},"k");
- if(S.b[ib]>=0)o({s:ESC[S.b[ib]]+(ib%8===7?12:0),ac:S.a[ib]},"b");
+ if(S.b[ib]>=0)o({s:nota(escSeq(),S.b[ib],S.o[ib]),ac:S.a[ib]},"b");
  if(S.h[ih])o({a:S.h[ih]===2?1:.4},"h");else if(Math.random()<P("hat","ghost")*.4)o({a:.3},"h");
  if(!S.k[ik])o({},"v");
  if(ib===nb-1&&Math.random()<P("seq","muta")*3){const j=Math.floor(Math.random()*nb);if(S.b[j]>=0)S.b[j]=[0,0,0,1,1,3,4][Math.floor(Math.random()*7)]}
@@ -284,20 +287,22 @@ document.getElementById("play").onclick=alternar;
 const bi=document.getElementById("bpm");bi.oninput=()=>{bpm=+bi.value;document.getElementById("bv").textContent=bpm;aplicar()};
 
 // ---------- Painel ----------
-const TR=[["kick","k",1,v=>v?"●":""],["baixo","b",7,v=>v<0?"":v+1],["chapéu","h",2,v=>["","·","○"][v]],["acento","a",1,v=>v?"▲":"","b"]];
+const TR=[["kick","k",1,v=>v?"●":""],["baixo","b",0,(v,i)=>v<0?"":nomeN(raizM()+nota(escSeq(),v,S.o[i]))],["oitava","o",0,v=>v?(v>0?"+":"−")+Math.abs(v):"","b"],["chapéu","h",2,v=>["","·","○"][v]],["acento","a",1,v=>v?"▲":"","b"]];
+let pintas=[];
 const NE=()=>Math.round(P("euc","passos")*15);
 const NOMES={compk:"comp k",compb:"comp b",comph:"comp h",dirk:"dir k",dirb:"dir b",dirh:"dir h"};
 const dimSeq=()=>{const n={k:comp(P("seq","compk")),b:comp(P("seq","compb")),h:comp(P("seq","comph"))};document.querySelectorAll(".gr button").forEach(b=>b.classList.toggle("fora",+b.dataset.i>=n[b.dataset.tr]))};
-const FMT={euc:{passos:v=>1+Math.round(v*15),pulsos:v=>Math.round(v*(1+NE())),rota:v=>Math.round(v*NE())},clk:{swing:v=>Math.round(v*100)+"%"},seq:{compk:comp,compb:comp,comph:comp},prob:{chance:v=>Math.round(v*100)+"%"},dur:{dur:v=>String(Math.round(gateLen(v)*100)/100).replace(".",",")+"p"},qnt:{oitavas:v=>1+Math.round(v*2)}};
+const FMT={fm:{transp:v=>{const s=Math.round((v-.5)*48);return(s>0?"+":"")+s+" st"}},euc:{passos:v=>1+Math.round(v*15),pulsos:v=>Math.round(v*(1+NE())),rota:v=>Math.round(v*NE())},clk:{swing:v=>Math.round(v*100)+"%"},seq:{compk:comp,compb:comp,comph:comp,raiz:v=>nomeN(31+Math.round(v*12))},prob:{chance:v=>Math.round(v*100)+"%"},dur:{dur:v=>String(Math.round(gateLen(v)*100)/100).replace(".",",")+"p"},qnt:{oitavas:v=>1+Math.round(v*2)}};
 function painel(){
  const m=M[sel],box=document.getElementById("ps");document.getElementById("nm").textContent=m.nome;box.innerHTML="";
  if(sel==="seq"){const d=document.createElement("div");d.className="opt";
   ["passos 1–8","9–16","17–24","25–32"].forEach((n,j)=>{const b=document.createElement("button");b.textContent=n;b.className=pg===j?"on":"";b.onclick=()=>{pg=j;painel()};d.appendChild(b)});box.appendChild(d)}
+ pintas=[];
  if(sel==="seq")for(const [,key,mx,fmt,trk] of TR){
   const r=document.createElement("div");r.className="gr";
   for(let j=0;j<8;j++){const i=pg*8+j,b=document.createElement("button");b.dataset.i=i;b.dataset.tr=trk||key;
-   const pinta=()=>{b.textContent=fmt(S[key][i]);b.classList.toggle("on",key==="b"?S[key][i]>=0:S[key][i]>0)};pinta();
-   b.onclick=()=>{const v=S[key][i];S[key][i]=key==="b"?(v>=6?-1:v+1):(v+1)%(mx+1);pinta();save()};r.appendChild(b)}
+   const pinta=()=>{b.textContent=fmt(S[key][i],i);b.classList.toggle("on",key==="b"?S[key][i]>=0:key==="o"?S[key][i]!==0:S[key][i]>0)};pinta();pintas.push(pinta);
+   b.onclick=()=>{const v=S[key][i];S[key][i]=key==="b"?(v>=escSeq().length-1?-1:v+1):key==="o"?(v>=2?-1:v+1):(v+1)%(mx+1);pintas.forEach(f=>f());save()};r.appendChild(b)}
   box.appendChild(r);
  }
  if(sel==="seq"){dimSeq();pvk=-1}
@@ -309,7 +314,7 @@ function painel(){
   const d=document.createElement("div");d.className="p";const lb=document.createElement("span");d.appendChild(lb);
   const rot=()=>{lb.textContent=(NOMES[k]||k)+(FMT[sel]&&FMT[sel][k]?" "+FMT[sel][k](m.p[k]):"")};rot();
   const r=document.createElement("input");r.type="range";r.min=0;r.max=1;r.step=.01;r.value=m.p[k];
-  r.oninput=()=>{m.p[k]=+r.value;rot();if(sel==="seq")dimSeq();aplicar();save()};d.appendChild(r);box.appendChild(d);
+  r.oninput=()=>{m.p[k]=+r.value;rot();if(sel==="seq"){dimSeq();pintas.forEach(f=>f())}aplicar();save()};d.appendChild(r);box.appendChild(d);
  }
 }
 painel();

@@ -14,7 +14,7 @@ const blocos = html => html.split('<script>').slice(1).map(b => b.split('</scrip
 function puras(arq) {
   const js = blocos(fs.readFileSync(arq, 'utf8')).pop();
   const code = js.split('/*PURO*/')[1].split('/*FIMPURO*/')[0];
-  const nomes = ['LFOMULT', 'lfoHz', 'clkT', 'clkSaidas', 'migraCabos', 'comp', 'proximo', 'normS', 'gateLen', 'gateDur', 'envPlan']
+  const nomes = ['LFOMULT', 'lfoHz', 'clkT', 'clkSaidas', 'migraCabos', 'comp', 'proximo', 'normS', 'nota', 'gateLen', 'gateDur', 'envPlan']
     .filter(n => new RegExp('(const|function) ' + n + '\\b').test(code));
   return new Function(code + ';return {' + nomes.join(',') + '}')();
 }
@@ -124,7 +124,7 @@ T('puro: comp, proximo, normS', () => {
   st = {}; r = []; for (let i = 0; i < 6; i++) r.push(U.proximo(st, 4, 1)); assert.deepStrictEqual(r, [3, 2, 1, 0, 3, 2]);
   st = {}; r = []; for (let i = 0; i < 8; i++) r.push(U.proximo(st, 3, 2)); assert.deepStrictEqual(r, [0, 1, 2, 1, 0, 1, 2, 1]);
   const s = U.normS({ k: [5, -2, 'x'], b: [99], h: [3], a: [2] });
-  assert.strictEqual(s.k.length, 32); assert.strictEqual(s.k[0], 1); assert.strictEqual(s.k[1], 0); assert.strictEqual(s.b[0], 6); assert.strictEqual(s.b[1], -1);
+  assert.strictEqual(s.k.length, 32); assert.strictEqual(s.k[0], 1); assert.strictEqual(s.k[1], 0); assert.strictEqual(s.b[0], 11); assert.strictEqual(s.b[1], -1);
   assert.strictEqual(s.h[0], 2); assert.strictEqual(s.a[0], 1); assert.strictEqual(U.normS(null).k.length, 32);
 });
 T('puro: lfoHz livre e sincronizado', () => {
@@ -192,7 +192,7 @@ if (ANT) {
       const pa = a.j('M.' + k + '.p'), pb = b.j('M.' + k + '.p');
       for (const q in pa) assert.deepStrictEqual(pb[q], pa[q], k + '.' + q);
     }
-    assert.strictEqual(JSON.stringify(a.j('C')), JSON.stringify(b.j('C'))); assert.strictEqual(JSON.stringify(a.j('S')), JSON.stringify(b.j('S')));
+    assert.strictEqual(JSON.stringify(a.j('C')), JSON.stringify(b.j('C'))); for (const t of ['k', 'b', 'h', 'a']) assert.deepStrictEqual(b.j('S.' + t), a.j('S.' + t), 'S.' + t); // v0.6.0 acrescenta S.o (oitava por passo); o resto do padrão é idêntico
     assert.strictEqual(a.j('bpm'), b.j('bpm'));
   });
   T('compat: save da versão anterior carrega na nova sem perda', () => {
@@ -323,7 +323,7 @@ T('painel: grade do tronco com 8 passos por página e 4 páginas, cobrindo 0..31
   const h = carrega(ARQ), vistos = [];
   for (let pg = 0; pg < 4; pg++) {
     const k = abre(h, pg), linhas = k.filter(c => c.className === 'gr');
-    assert.strictEqual(linhas.length, 4);
+    assert.strictEqual(linhas.length, 5);
     for (const l of linhas) assert.deepStrictEqual(l.children.map(b => +b.dataset.i), [0, 1, 2, 3, 4, 5, 6, 7].map(j => pg * 8 + j));
     vistos.push(...linhas[0].children.map(b => +b.dataset.i));
     assert.deepStrictEqual(k.find(c => c.className === 'opt').children.map(b => b.textContent), ['passos 1–8', '9–16', '17–24', '25–32']);
@@ -333,7 +333,7 @@ T('painel: grade do tronco com 8 passos por página e 4 páginas, cobrindo 0..31
 T('painel: botão de página troca a página e botão de passo edita o passo certo', () => {
   const h = carrega(ARQ), k = abre(h, 0);
   k.find(c => c.className === 'opt').children[3].onclick(); assert.strictEqual(h.j('pg'), 3);
-  const k2 = h.elems.ps.children, linhaK = k2.filter(c => c.className === 'gr').slice(-4)[0]; // o mock não limpa os filhos: pega a grade redesenhada
+  const k2 = h.elems.ps.children, linhaK = k2.filter(c => c.className === 'gr').slice(-5)[0]; // o mock não limpa os filhos: pega a grade redesenhada
   const antes = h.j('S.k[24]'); linhaK.children[0].onclick(); assert.strictEqual(h.j('S.k[24]'), (antes + 1) % 2);
   assert.strictEqual(h.j('S.k[0]'), 1, 'não pode mexer no passo 0');
 });
@@ -421,6 +421,46 @@ T('v0.5.9: sidechain do baixo desce em rampa de 4 ms (sem degrau) e volta em 0,2
 T('v0.5.9: fila de eventos visuais é limitada', async () => {
   const h = carrega(ARQ); await h.run('iniciar()'); h.run('for(let i=0;i<5000;i++)ev(1e9,"kick")');
   assert.ok(h.j('evs.length') <= 2000);
+});
+
+// ---------- v0.6.0: controle de notas ----------
+T('v0.6.0 puro: nota sobe de oitava além da escala e soma a oitava do passo', () => {
+  const ESC = [0, 1, 3, 5, 7, 8, 10], CR = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+  assert.strictEqual(U.nota(ESC, 0, 0), 0); assert.strictEqual(U.nota(ESC, 6, 0), 10); assert.strictEqual(U.nota(ESC, 7, 0), 12); assert.strictEqual(U.nota(ESC, 1, 1), 13);
+  assert.strictEqual(U.nota(CR, 11, 0), 11); assert.strictEqual(U.nota([0, 3, 5, 7, 10], 5, 0), 12); assert.strictEqual(U.nota(ESC, 2, -1), -9); assert.strictEqual(U.nota(ESC, 2), 3);
+});
+T('v0.6.0 puro: normS deriva o salto de oitava dos saves antigos e limita o campo o', () => {
+  const a = U.normS({ k: [], b: [0, 0, 0, 0, 0, 0, 0, 1] });
+  for (let i = 0; i < 32; i++) assert.strictEqual(a.o[i], i % 8 === 7 ? 1 : 0);
+  const b = U.normS({ o: [9, -9, 1, 'x'] }); assert.deepStrictEqual(b.o.slice(0, 4), [2, -1, 1, 0]); assert.strictEqual(b.o.length, 32);
+  assert.strictEqual(U.normS(null).o[7], 1);
+});
+T('v0.6.0: nota do baixo no preset é idêntica à regra antiga (grau da frígia + oitava a cada 8º passo)', () => {
+  const ESC = [0, 1, 3, 5, 7, 8, 10];
+  for (let i = 0; i < 32; i++) for (let d = 0; d <= 6; d++) assert.strictEqual(U.nota(ESC, d, U.normS({}).o[i]), ESC[d] + (i % 8 === 7 ? 12 : 0));
+});
+T('v0.6.0: seq em cromática e oitava por passo chegam ao gate do baixo', async () => {
+  const h = carrega(ARQ); await h.run('iniciar()');
+  h.run('M.seq.p.escala=3;S.b[0]=5;S.o[0]=2;globalThis.__s=[];pulso=function(id,t,d,pt){if(id==="seq"&&pt==="b")__s.push(d.s)};PS={k:{},b:{},h:{}};passoSeq(1,0)');
+  assert.deepStrictEqual(h.j('__s'), [29]);
+});
+T('v0.6.0: FM segue o baixo (2 oitavas acima) e aplica a transposição; sorteio usa a escala escolhida', async () => {
+  const h = carrega(ARQ); await h.run('iniciar()');
+  h.run('globalThis.__n=[];fm=function(t,n){__n.push(n)};M.fm.p.notas=1;M.fm.p.transp=.5;ultB=40;entra("fm",1,{},0)');
+  assert.strictEqual(h.j('__n[0]'), 64);
+  h.run('M.fm.p.transp=.75;entra("fm",1,{},0)'); assert.strictEqual(h.j('__n[1]'), 76);
+  h.run('M.fm.p.notas=0;M.fm.p.transp=.5;M.seq.p.escala=2;for(let i=0;i<40;i++)entra("fm",1,{},0)');
+  const base = h.j('31+Math.round(P("seq","raiz")*12)+29'), ok = new Set([0, 3, 5, 7, 10, 12, 15, 17, 19, 22]);
+  assert.ok(h.j('__n.slice(2)').every(n => ok.has(n - base)), 'notas fora da pentatônica');
+});
+T('v0.6.0: painel do Tronco tem linha de oitava e o botão de oitava cicla de −1 a +2', () => {
+  const h = carrega(ARQ), k = abre(h, 0);
+  const rows = k.filter(c => c.className === 'gr'); assert.strictEqual(rows.length, 5);
+  const o = rows[2]; o.children[0].onclick(); assert.strictEqual(h.j('S.o[0]'), 1); o.children[0].onclick(); o.children[0].onclick(); assert.strictEqual(h.j('S.o[0]'), -1);
+  assert.strictEqual(h.j('S.o.every(v=>v>=-1&&v<=2)'), true);
+});
+T('v0.6.0: save sem o (formato da v0.5.9) carrega com os saltos de oitava de antes', () => {
+  const h = carrega(ARQ); assert.strictEqual(h.j('S.o[7]'), 1); assert.strictEqual(h.j('S.o[15]'), 1); assert.strictEqual(h.j('S.o[0]'), 0);
 });
 
 // ---------- execução ----------
