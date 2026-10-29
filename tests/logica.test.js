@@ -470,7 +470,7 @@ T('v0.6.1: o painel do Raiz-baixo edita notas, oitava e acento, e mexe no mesmo 
   const o0 = h.j('S.o[0]'); rows[1].children[0].onclick(); assert.strictEqual(h.j('S.o[0]'), o0 + 1);
   const b0 = h.j('S.b[0]'); rows[0].children[0].onclick(); assert.strictEqual(h.j('S.b[0]'), b0 >= 6 ? -1 : b0 + 1);
   const txt = k.filter(c => c.className === 'p').map(c => c.children[0].textContent);
-  assert.ok(txt.some(t => /^raiz /.test(t)) && txt.some(t => /^comp b/.test(t)) && txt.some(t => /^duck/.test(t)), txt.join('|'));
+  assert.ok(txt.some(t => /^raiz/.test(t)) && txt.some(t => /^comp b/.test(t)) && txt.some(t => /^duck/.test(t)), txt.join('|'));
   assert.ok(k.some(c => c.className === 'opt' && c.children.some(b => /escala/.test(b.textContent))));
 });
 T('v0.6.1: painel do Tronco continua com as 5 linhas e sem os sliders do baixo duplicados', () => {

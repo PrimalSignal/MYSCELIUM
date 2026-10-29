@@ -1,5 +1,6 @@
 "use strict";
 /* CHANGELOG
+v0.7.1: corrige a v0.7.0 (3 testes do painel falhavam): as abas de página voltam a ter className exato "opt" (o estilo de aba agora vem de data-pg) e o teste do Raiz-baixo aceita o rótulo do slider sem o valor colado (o valor agora é um elemento à parte). Sem mudança visual nem de som.
 v0.7.0 (só visual do painel de opções, sem mudança de som nem de dados): o painel herda a cor do módulo (variável CSS --c, via m.cor); sliders viram fio fino com nó e valor em mono à direita (sem valor formatado mostra 0–100); botões de opção viram pílulas, células dos passos ganham cantos de folha e brilho na cor do módulo (acabou o amarelo único); cada linha de passos tem rótulo (kick, baixo, oitava, chapéu, acento); abas de página mais discretas; fundo do painel translúcido com desfoque. Mesmos nomes de classe e mesmos handlers da v0.6.1.
 v0.6.1: o painel do Raiz-baixo agora também edita as notas do baixo (nome da nota, oitava e acento por passo, páginas, raiz, escala, comprimento e direção da trilha do baixo), sem precisar abrir o Tronco-relógio; mesmo dado, mesmas teclas.
 v0.6.0 (controle de notas, sem mudança de som no preset): (1) cada passo do baixo agora tem nota (grau da escala escolhida, mostrado como nome da nota, por exemplo E2) e oitava própria (nova linha "oitava", de −1 a +2); o salto de oitava que era automático a cada 8º passo virou dado por passo e saves antigos ganham os mesmos saltos ao carregar (normS), então o som do preset não muda. (2) o Tronco-relógio ganha "escala" (frígia, menor, pentat., cromática): em cromática cada passo é um semitom; graus além do tamanho da escala sobem uma oitava. (3) o slider raiz mostra o nome da nota. (4) Samambaia-FM ganha "notas" (sorteio, como antes, ou segue baixo, 2 oitavas acima da última nota do baixo) e "transp" (−24 a +24 semitones). O sorteio do FM passa a usar a escala escolhida. Salvamento: mesma chave micelio42 (compatível nos dois sentidos: a v0.5.9 ignora os campos novos; parâmetros novos ficam nos padrões se o save não os tiver). Lógica pura nova: nota.
@@ -308,7 +309,7 @@ function painel(){
   const r=document.createElement("input");r.type="range";r.min=0;r.max=1;r.step=.01;r.value=mm.p[k];
   const rot=()=>{lb.textContent=NOMES[k]||k;vl.textContent=FMT[mod]&&FMT[mod][k]?String(FMT[mod][k](mm.p[k])):String(Math.round(mm.p[k]*100));cssv(r,"--v",Math.round(mm.p[k]*100)+"%")};rot();
   r.oninput=()=>{mm.p[k]=+r.value;rot();if(mod==="seq"){dimSeq();pintas.forEach(f=>f())}aplicar();save()};d.appendChild(r);d.appendChild(vl);box.appendChild(d)};
- if(sel==="seq"||nb){const d=document.createElement("div");d.className="opt pg";
+ if(sel==="seq"||nb){const d=document.createElement("div");d.className="opt";d.dataset.pg="1";
   ["passos 1–8","9–16","17–24","25–32"].forEach((n,j)=>{const b=document.createElement("button");b.textContent=n;b.className=pg===j?"on":"";b.onclick=()=>{pg=j;painel()};d.appendChild(b)});box.appendChild(d)}
  pintas=[];
  if(sel==="seq"||nb)for(const [nomeTr,key,mx,fmt,trk] of TR){
