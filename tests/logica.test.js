@@ -478,6 +478,44 @@ T('v0.6.1: painel do Tronco continua com as 5 linhas e sem os sliders do baixo d
   assert.ok(!k.some(c => c.className === 'p' && /^duck/.test(c.children[0].textContent)));
 });
 
+T('v0.7.3: padrões dos hats reproduzem o som antigo (7 kHz, Q 1) e não mexem no tempo', async () => {
+  const h = carrega(ARQ); await h.run('iniciar()');
+  assert.deepStrictEqual(h.j('["swing","sincopa","humano","tom","metal"].map(k=>M.hat.p[k])'), [0, 0, 0, .5, .3]);
+  assert.strictEqual(h.j('hatTomHz(M.hat.p.tom)'), 7000); assert.strictEqual(h.j('hatQ(M.hat.p.metal)'), 1);
+  h.run('globalThis.__c=[];chapeu=function(t,f){__c.push([t,f])};S.h.fill(2);PS={k:{},b:{},h:{}};for(let i=0;i<12;i++)entra("seq",1+i*.075,{},0)');
+  assert.ok(h.j('__c.length') >= 12); assert.ok(h.j('__c.every((c,i)=>Math.abs(c[0]-(1+i*.075))<1e-9&&c[1]===1)'), 'hat saiu do tempo ou do volume com os padrões');
+});
+T('v0.7.3: swing dos hats atrasa só os passos ímpares, até meio passo', async () => {
+  const h = carrega(ARQ); await h.run('iniciar()');
+  h.run('globalThis.__c=[];chapeu=function(t,f){__c.push(t)};S.h.fill(2);PS={k:{},b:{},h:{}};M.hat.p.swing=1;for(let i=0;i<8;i++)entra("seq",1+i*.075,{},0)');
+  for (let i = 0; i < 8; i++) { const d = h.j('__c[' + i + ']') - (1 + i * .075); assert.ok(Math.abs(d - (i % 2 ? .0375 : 0)) < 1e-9, 'passo ' + i + ' atraso ' + d); }
+  h.run('__c.length=0;PS={k:{},b:{},h:{}};M.hat.p.swing=.5;for(let i=0;i<2;i++)entra("seq",1+i*.075,{},0)');
+  assert.ok(Math.abs(h.j('__c[1]') - (1.075 + .01875)) < 1e-9);
+});
+T('v0.7.3: síncopa empurra hats meio passo e humano varia tempo e volume dentro dos limites', async () => {
+  const h = carrega(ARQ); await h.run('iniciar()');
+  h.run('globalThis.__c=[];chapeu=function(t,f){__c.push([t,f])};S.h.fill(2);PS={k:{},b:{},h:{}};M.hat.p.sincopa=1;for(let i=0;i<60;i++)entra("seq",1+i*.075,{},0)');
+  const ds = h.j('__c.map((c,i)=>Math.round((c[0]-(1+i*.075))*10000))'); assert.ok(ds.every(d => d === 0 || d === 375), ds.join(','));
+  assert.ok(ds.includes(0) && ds.includes(375), 'síncopa deveria misturar hats no tempo e deslocados');
+  h.run('__c.length=0;PS={k:{},b:{},h:{}};M.hat.p.sincopa=0;M.hat.p.humano=1;for(let i=0;i<60;i++)entra("seq",1+i*.075,{},0)');
+  assert.ok(h.j('__c.every((c,i)=>Math.abs(c[0]-(1+i*.075))<=.075*.12+1e-9&&c[1]>=.65-1e-9&&c[1]<=1.35+1e-9)'), 'humano fora dos limites');
+  assert.ok(h.j('new Set(__c.map(c=>c[1])).size')>10, 'humano deveria variar o volume');
+});
+T('v0.7.3: tom e metal mudam o filtro do chapéu e o ganho é compensado na ressonância', () => {
+  const h = carrega(ARQ);
+  assert.ok(h.j('hatTomHz(0)') > 3000 && h.j('hatTomHz(0)') < 3100 && h.j('hatTomHz(1)') > 16000 && h.j('hatTomHz(1)') < 16200);
+  assert.ok(h.j('hatQ(0)') < 1 && h.j('hatQ(1)') > 5 && h.j('hatQ(1)') < 8);
+  assert.ok(h.j('hatTomHz(.7)') > h.j('hatTomHz(.5)'));
+});
+T('v0.7.3: painel dos Esporos tem os 5 sliders novos em grupos e saves antigos ganham os padrões', () => {
+  const h = carrega(ARQ); h.elems.ps.children.length = 0; h.run('sel="hat";painel()'); const k = h.elems.ps.children;
+  const nomes = k.filter(c => c.className === 'p').map(c => c.children[0].textContent); assert.deepStrictEqual(nomes, ['vol', 'queda', 'tom', 'metal', 'swing', 'síncopa', 'humano', 'ghost', 'quanto'], JSON.stringify(nomes));
+  const gr = k.filter(c => c.className === 'lbl').map(c => c.textContent); assert.deepStrictEqual(gr, ['nível', 'timbre', 'ritmo'], JSON.stringify(gr));
+  h.run('save()'); const s = JSON.parse(h.ls.micelio42); for (const x of ['tom', 'metal', 'swing', 'sincopa', 'humano']) delete s.p.hat[x];
+  const h2 = carrega(ARQ, { micelio42: JSON.stringify(s) });
+  assert.deepStrictEqual(h2.j('["tom","metal","swing","sincopa","humano"].map(k=>M.hat.p[k])'), [.5, .3, 0, 0, 0]);
+});
+
 // ---------- execução ----------
 (async () => {
   let ok = 0, falha = 0;

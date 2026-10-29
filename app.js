@@ -1,5 +1,6 @@
 "use strict";
 /* CHANGELOG
+v0.7.3 (hats): o painel dos Esporos ganha swing (atraso dos passos ímpares só nos hats, 0–100% = de reto até swing de 75%, independente do swing do Pulsar-mãe), síncopa (chance de empurrar o hat meio passo para trás), humano (variação aleatória de tempo e de volume), tom (corte do passa-altas, 3–16 kHz) e metal (ressonância do filtro, com ganho compensado). Todos os padrões reproduzem o som da v0.7.2: swing, síncopa e humano em 0 (sem consumir sorteios), tom 0,5 = 7 kHz e metal 0,3 = Q 1. Saves antigos ganham os padrões ao carregar.
 v0.7.2 (só tipografia): a fonte padrão de toda a interface (painel, barra do topo, HUD, instruções e rótulos do canvas) passa a ser a Syne, sem itálico (a Syne não tem; font-synthesis desligado para não gerar oblíquo falso). Carrega de syne.woff na mesma pasta (funciona offline; tools/build.js embute o arquivo no HTML único) e, se esse arquivo não existir, do Google Fonts (index.html); sem nenhum dos dois cai em system-ui.
 v0.7.1: corrige a v0.7.0 (3 testes do painel falhavam): as abas de página voltam a ter className exato "opt" (o estilo de aba agora vem de data-pg) e o teste do Raiz-baixo aceita o rótulo do slider sem o valor colado (o valor agora é um elemento à parte). Sem mudança visual nem de som.
 v0.7.0 (só visual do painel de opções, sem mudança de som nem de dados): o painel herda a cor do módulo (variável CSS --c, via m.cor); sliders viram fio fino com nó e valor em mono à direita (sem valor formatado mostra 0–100); botões de opção viram pílulas, células dos passos ganham cantos de folha e brilho na cor do módulo (acabou o amarelo único); cada linha de passos tem rótulo (kick, baixo, oitava, chapéu, acento); abas de página mais discretas; fundo do painel translúcido com desfoque. Mesmos nomes de classe e mesmos handlers da v0.6.1.
@@ -68,7 +69,7 @@ const DEF=()=>{const m={
  kick:{nome:"Cogumelo-kick",cor:"#ff2e93",x:.04,y:0,o:1,g:1,gi:1,p:{queda:.2,soco:.08,drive:.45,afino:.78,clique:.74}},
  bass:{nome:"Raiz-baixo",cor:"#b14cff",x:.04,y:.33,o:1,g:1,gi:1,p:{duck:.8,sub:.77,acento:.5}},
  fm:{nome:"Samambaia-FM",cor:"#2dffe0",x:.04,y:.66,o:1,g:1,gi:1,p:{razao:.4,indice:.35,vol:.28,notas:0,transp:.5}},
- hat:{nome:"Esporos",cor:"#e8ff5a",x:.04,y:1,o:1,g:1,gi:1,p:{vol:.8,queda:.3,ghost:.25}},
+ hat:{nome:"Esporos",cor:"#e8ff5a",x:.04,y:1,o:1,g:1,gi:1,p:{vol:.8,queda:.3,tom:.5,metal:.3,swing:0,sincopa:0,humano:0,ghost:.25}},
  ladder:{nome:"Trepadeira-ladder",cor:"#9dff6a",x:.2,y:.08,i:1,o:1,p:{corte:.55,reso:.5,env:.6,drive:.45}},
  fold:{nome:"Cipó dobrador",cor:"#ff9a3c",x:.2,y:.4,i:1,o:1,p:{dobra:.4,bias:.1}},
  crush:{nome:"Musgo pixelado",cor:"#6aa8ff",x:.2,y:.7,i:1,o:1,p:{esmaga:.3,taxa:.2}},
@@ -197,7 +198,7 @@ function entra(k,t,d,dep){
  if(k==="seq")passoSeq(t,dep);
  else if(k==="kick"){if(voz<70){kick(t);sai()}}
  else if(k==="bass"){if(voz<70){ultB=raiz+(d.s||0);baixo(t,ultB,sd*.9,d.ac);sai()}}
- else if(k==="hat"){chapeu(t,d.a||1);sai()}
+ else if(k==="hat"){const th=Math.max(ctx.currentTime,t+(d.dt||0)),dd=Object.assign({},d);delete dd.dt;chapeu(th,d.a||1);pulso(k,th,dd,undefined,dep)}
  else if(k==="fm"){const e=escSeq(),tr=Math.round((P("fm","transp")-.5)*48),nt=P("fm","notas")===1?ultB+24:raiz+29+(d.s!==undefined?d.s:e[Math.floor(Math.random()*e.length)]+(Math.random()<.3?12:0));fm(t,nt+tr,sd*(2+Math.random()*4));sai()}
  else if(k==="lfo1"||k==="lfo2")reiniciaLfo(k,t);
  else if(k==="env1"||k==="env2")dispEnv(k,t,d);
@@ -248,10 +249,11 @@ function fm(t,nota,dur){if(voz>40)return;
  m.connect(mg);mg.connect(c.frequency);c.connect(g);g.connect(M.fm.o);conta(c);
  const fd=.01;c.start(t);m.start(t);c.stop(t+dur+fd);m.stop(t+dur+fd);ev(t,"fm");
 }
+const hatTomHz=v=>7000*Math.pow(2,(v-.5)*2.4),hatQ=v=>Math.pow(10,(v-.3)*1.2);
 function chapeu(t,f){if(voz>56)return;
  const n=ctx.createBufferSource(),h=ctx.createBiquadFilter(),g=ctx.createGain();
- n.buffer=noiseBuf;conta(n);h.type="highpass";h.frequency.value=7000;
- g.gain.setValueAtTime(P("hat","vol")*f*.5,t);const dh=.03+P("hat","queda")*.25*(f>=1?1.8:1);g.gain.exponentialRampToValueAtTime(.001,t+dh);g.gain.linearRampToValueAtTime(0,t+dh+.01);
+ n.buffer=noiseBuf;conta(n);h.type="highpass";h.frequency.value=hatTomHz(P("hat","tom"));const q=hatQ(P("hat","metal"));h.Q.value=q;
+ g.gain.setValueAtTime(P("hat","vol")*f*.5/Math.sqrt(Math.max(1,q)),t);const dh=.03+P("hat","queda")*.25*(f>=1?1.8:1);g.gain.exponentialRampToValueAtTime(.001,t+dh);g.gain.linearRampToValueAtTime(0,t+dh+.01);
  n.connect(h);h.connect(g);g.connect(M.hat.o);n.start(t);const fd=.01;n.stop(t+dh+.02);ev(t,"hat");gat("hat",t);
 }
 let PS={k:{},b:{},h:{}},prox=0,timer,cnt=0;
@@ -262,7 +264,9 @@ function passoSeq(t,dep){
  ev(t,"seq",ik,"k");ev(t,"seq",ib,"b");ev(t,"seq",ih,"h");gat("passo",t);
  if(S.k[ik])o({},"k");
  if(S.b[ib]>=0)o({s:nota(escSeq(),S.b[ib],S.o[ib]),ac:S.a[ib]},"b");
- if(S.h[ih])o({a:S.h[ih]===2?1:.4},"h");else if(Math.random()<P("hat","ghost")*.4)o({a:.3},"h");
+ const sdH=60/bpm/4,swH=P("hat","swing"),siH=P("hat","sincopa"),huH=P("hat","humano"),ni=PS.n||0,imp=ni&1;PS.n=ni+1;
+ const hx=a=>{let dt=imp?swH*sdH*.5:0;if(siH>0&&Math.random()<siH*.6)dt+=sdH*.5;if(huH>0){dt+=(Math.random()-.5)*huH*sdH*.24;a*=1+(Math.random()-.5)*huH*.7}return{a,dt}};
+ if(S.h[ih])o(hx(S.h[ih]===2?1:.4),"h");else if(Math.random()<P("hat","ghost")*.4)o(hx(.3),"h");
  if(!S.k[ik])o({},"v");
  if(ib===nb-1&&Math.random()<P("seq","muta")*3){const j=Math.floor(Math.random()*nb);if(S.b[j]>=0)S.b[j]=[0,0,0,1,1,3,4][Math.floor(Math.random()*7)]}
 }
@@ -295,9 +299,10 @@ const FONTE='"SyneLocal","Syne",system-ui,sans-serif';
 const TR=[["kick","k",1,v=>v?"●":""],["baixo","b",0,(v,i)=>v<0?"":nomeN(raizM()+nota(escSeq(),v,S.o[i]))],["oitava","o",0,v=>v?(v>0?"+":"−")+Math.abs(v):"","b"],["chapéu","h",2,v=>["","·","○"][v]],["acento","a",1,v=>v?"▲":"","b"]];
 let pintas=[];
 const NE=()=>Math.round(P("euc","passos")*15);
-const NOMES={compk:"comp k",compb:"comp b",comph:"comp h",dirk:"dir k",dirb:"dir b",dirh:"dir h"};
+const GRUPOS={hat:{vol:"nível",tom:"timbre",swing:"ritmo"}};
+const NOMES={sincopa:"síncopa",compk:"comp k",compb:"comp b",comph:"comp h",dirk:"dir k",dirb:"dir b",dirh:"dir h"};
 const dimSeq=()=>{const n={k:comp(P("seq","compk")),b:comp(P("seq","compb")),h:comp(P("seq","comph"))};document.querySelectorAll(".gr button").forEach(b=>b.classList.toggle("fora",+b.dataset.i>=n[b.dataset.tr]))};
-const FMT={fm:{transp:v=>{const s=Math.round((v-.5)*48);return(s>0?"+":"")+s+" st"}},euc:{passos:v=>1+Math.round(v*15),pulsos:v=>Math.round(v*(1+NE())),rota:v=>Math.round(v*NE())},clk:{swing:v=>Math.round(v*100)+"%"},seq:{compk:comp,compb:comp,comph:comp,raiz:v=>nomeN(31+Math.round(v*12))},prob:{chance:v=>Math.round(v*100)+"%"},dur:{dur:v=>String(Math.round(gateLen(v)*100)/100).replace(".",",")+"p"},qnt:{oitavas:v=>1+Math.round(v*2)}};
+const FMT={hat:{swing:v=>Math.round(v*100)+"%",sincopa:v=>Math.round(v*100)+"%",humano:v=>Math.round(v*100)+"%",tom:v=>(Math.round(hatTomHz(v)/100)/10).toFixed(1).replace(".",",")+" kHz"},fm:{transp:v=>{const s=Math.round((v-.5)*48);return(s>0?"+":"")+s+" st"}},euc:{passos:v=>1+Math.round(v*15),pulsos:v=>Math.round(v*(1+NE())),rota:v=>Math.round(v*NE())},clk:{swing:v=>Math.round(v*100)+"%"},seq:{compk:comp,compb:comp,comph:comp,raiz:v=>nomeN(31+Math.round(v*12))},prob:{chance:v=>Math.round(v*100)+"%"},dur:{dur:v=>String(Math.round(gateLen(v)*100)/100).replace(".",",")+"p"},qnt:{oitavas:v=>1+Math.round(v*2)}};
 const cssv=(el,k,v)=>{if(el&&el.style&&el.style.setProperty)el.style.setProperty(k,v)};
 function painel(){
  const m=M[sel],box=document.getElementById("ps"),nb=sel==="bass";document.getElementById("nm").textContent=m.nome;box.innerHTML="";cssv(document.getElementById("panel"),"--c",m.cor);
@@ -325,7 +330,7 @@ function painel(){
  }
  if(sel==="seq"||nb){dimSeq();pvk=-1}
  if(nb)for(const k of ["raiz","escala","compb","dirb"])ctl("seq",k);
- for(const k in m.p)ctl(sel,k);
+ for(const k in m.p){const gp=GRUPOS[sel]&&GRUPOS[sel][k];if(gp){const lt=document.createElement("div");lt.className="lbl";lt.textContent=gp;box.appendChild(lt)}ctl(sel,k)}
 }
 painel();
 
