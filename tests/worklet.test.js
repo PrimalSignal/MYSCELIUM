@@ -59,8 +59,16 @@ T('ladder: corte varrendo (CV) nunca gera NaN', () => {
 T('fold: saída limitada (≤ 1,2 com o filtro de DC) e finita para qualquer dobra e bias', () => {
   for (const [f, b] of [[1, 0], [14, 0], [14, 1], [7, -1], [1, 1]]) { const s = stats(roda('fold', sen(110, 1), SR / 2, { fold: f, bias: b })); assert.ok(s.fin); assert.ok(s.pk <= 1.2, 'pico ' + s.pk); }
 });
-T('fold: dobra 1 sem bias segue a curva do seno para sinais pequenos (dentro do efeito do filtro de DC)', () => {
-  const y = roda('fold', sen(110, .05), 4000, { fold: 1, bias: 0 }); let m = 0; for (let i = 0; i < y.length; i++) if (i > 2000) m = Math.max(m, Math.abs(y[i] - .85 * Math.sin(.05 * Math.sin(2 * Math.PI * 110 * i / SR) * 1.5708))); assert.ok(m < .01, 'erro ' + m);
+// o dobrador roda sobreamostrado 4× (v0.7.6): a saída chega ATRASO amostras depois da curva ideal
+const ATRASO = 17;
+T('fold: dobra 1 sem bias segue a curva do seno para sinais pequenos (com o atraso da sobreamostragem e o efeito do filtro de DC)', () => {
+  const y = roda('fold', sen(110, .05), 4000, { fold: 1, bias: 0 }); let m = 0; for (let i = 2000; i < y.length; i++) m = Math.max(m, Math.abs(y[i] - .85 * Math.sin(.05 * Math.sin(2 * Math.PI * 110 * (i - ATRASO) / SR) * 1.5708))); assert.ok(m < .01, 'erro ' + m);
+});
+T('fold: o atraso da sobreamostragem é de exatamente 17 amostras', () => {
+  // 1 kHz: em graves o filtro de DC adianta a fase e confunde a medida
+  const y = roda('fold', sen(1000, .05), 6000, { fold: 1, bias: 0 }); let melhor = -1, lag = -1;
+  for (let L = 0; L < 40; L++) { let c = 0; for (let i = 3000; i < 5000; i++) c += y[i] * Math.sin(.05 * Math.sin(2 * Math.PI * 1000 * (i - L) / SR) * 1.5708); if (c > melhor) { melhor = c; lag = L; } }
+  assert.strictEqual(lag, ATRASO);
 });
 T('crush: 1 bit dá poucos níveis; 16 bits quase não altera; taxa segura amostras', () => {
   const y1 = roda('crush', sen(220, .9), 8000, { bits: 1, rate: 1 }), niv = new Set(Array.from(y1).map(v => v.toFixed(4))); assert.ok(niv.size <= 3, 'níveis ' + niv.size);
