@@ -611,6 +611,66 @@ T('v0.7.6: ladder, dobrador e crush ficam finitos em extremos e o dobrador não 
   const z = rodaWK(R, 'fold', new Float32Array(sr), { fold: 5.8, bias: 0 }); assert.ok(z.every(v => Math.abs(v) < 1e-12));
 });
 
+// ---------- v0.7.7: destaque do que combina ----------
+T('v0.7.7: a regra do destaque (motivoNao) concorda com conecta() em todas as combinações', () => {
+  const h = carrega(ARQ);
+  const r = h.j(`(()=>{const bad=[];let ok=0;for(const a in M)for(const b in M)for(const k of ["a","c","g"])for(const pt0 of ptsDe(a,k)){const pt=k==="g"?pt0:undefined,m=motivoNao(a,b,k,pt),n0=C.length;conecta(a,b,k,pt);const feito=C.length>n0;if(feito){C.pop();ok++}if((m===null)!==feito)bad.push([a,b,k,pt])}return{bad,ok}})()`);
+  assert.deepStrictEqual(r.bad, []); assert.ok(r.ok > 40, 'poucas ligações possíveis: ' + r.ok);
+});
+T('v0.7.7: saída selecionada destaca só entradas que combinam (sem ela mesma, sem duplicata, sem laço)', () => {
+  const h = carrega(ARQ), tem = (k, kind) => h.j(`alvos.some(x=>x.k==="${k}"&&x.kind==="${kind}")`);
+  h.run('selPorta({t:"o",k:"kick"})');
+  assert.ok(tem('ladder', 'a') && tem('out', 'c') && tem('env2', 'g'), 'devia destacar áudio, CV e gate livres');
+  assert.ok(!tem('kick', 'a') && !tem('kick', 'g') && !tem('kick', 'c'), 'não pode destacar o próprio módulo');
+  assert.ok(!tem('out', 'a') && !tem('env1', 'g'), 'ligações que já existem não são destino');
+  assert.ok(!tem('fm', 'a'), 'fm não tem entrada de áudio');
+  h.run('selPorta({t:"o",k:"eco"})');
+  assert.ok(!tem('fold', 'a'), 'eco→fold fecharia um laço (fold→eco já existe)'); assert.ok(tem('crush', 'a'));
+  h.run('selPorta({t:"o",k:"lfo1"})'); assert.ok(h.j('alvos.every(x=>x.kind!=="g")'), 'o LFO não tem saída de gate');
+});
+T('v0.7.7: entrada selecionada destaca as saídas que combinam, uma por porta do sequenciador e do relógio', () => {
+  const h = carrega(ARQ);
+  h.run('selPorta({t:"i",k:"dur",kind:"g"})');
+  const o = h.j('alvos.filter(x=>x.k==="seq").map(x=>x.pt)'); assert.deepStrictEqual(o.sort(), ['b', 'h', 'k', 'v']);
+  assert.strictEqual(h.j('alvos.filter(x=>x.k==="clk").length'), 5);
+  assert.ok(h.j('!alvos.some(x=>x.k==="dur"||x.k==="lfo1"||x.k==="out")'));
+  h.run('selPorta({t:"i",k:"ladder",kind:"a"})'); assert.ok(h.j('alvos.some(x=>x.k==="bass"&&x.role==="out")') === false, 'bass→ladder já existe');
+  assert.ok(h.j('alvos.some(x=>x.k==="fm")') && h.j('alvos.every(x=>x.k!=="ladder")'));
+  h.run('selPorta({t:"i",k:"kick",kind:"a"})'); assert.strictEqual(h.j('alvos.length'), 0, 'kick não tem entrada de áudio: nada combina');
+});
+T('v0.7.7: modo toque liga nos dois sentidos e toque fora do destaque só troca a seleção', () => {
+  const h = carrega(ARQ), ligou = (a, b, k) => h.j(`C.some(c=>c[0]==="${a}"&&c[1]==="${b}"&&c[2]==="${k}")`);
+  h.run('tocaSaida("fm",undefined)'); assert.strictEqual(h.j('psel.t'), 'o'); assert.strictEqual(h.run('tocaEntrada("vca","a")'), true);
+  assert.ok(ligou('fm', 'vca', 'a')); assert.strictEqual(h.j('psel'), null);
+  h.run('tocaEntrada("crush","a")'); assert.strictEqual(h.j('psel.t'), 'i'); assert.strictEqual(h.run('tocaSaida("fold",undefined)'), true);
+  assert.ok(ligou('fold', 'crush', 'a')); assert.strictEqual(h.j('psel'), null);
+  const n = h.j('C.length'); h.run('tocaSaida("kick",undefined)'); assert.strictEqual(h.run('tocaEntrada("fm","a")'), false);
+  assert.strictEqual(h.j('C.length'), n, 'fm não tem entrada de áudio: não liga'); assert.strictEqual(h.j('psel.t'), 'i');
+  h.run('tocaEntrada("fm","a")'); assert.strictEqual(h.j('psel'), null, 'tocar a mesma entrada de novo desmarca');
+  h.run('tocaSaida("seq","k")'); h.run('tocaEntrada("div","g")'); assert.ok(h.j('C.some(c=>c[0]==="seq"&&c[1]==="div"&&c[2]==="g"&&c[3]==="k")'), 'a porta k do sequenciador deve ir junto');
+  h.run('tocaSaida("kick",undefined)'); h.run('tocaSaida("kick",undefined)'); assert.strictEqual(h.j('togg'), true, 'tocar a mesma saída de novo marca para desmarcar');
+});
+T('v0.7.7: cipó selecionado mostra os outros destinos; só o segundo toque corta', () => {
+  const h = carrega(ARQ), n = h.j('C.length');
+  h.run('tocaCabo(0)'); assert.strictEqual(h.j('psel.t'), 'c'); assert.strictEqual(h.j('C.length'), n, 'o primeiro toque não corta');
+  h.run('tocaCabo(1)'); assert.strictEqual(h.j('psel.i'), 1); assert.strictEqual(h.j('C.length'), n, 'outro cipó só troca a seleção');
+  h.run('tocaCabo(1)'); assert.strictEqual(h.j('C.length'), n - 1); assert.strictEqual(h.j('psel'), null);
+  h.run('C.push(["fm","vca","a"]);tocaCabo(C.length-1)'); assert.ok(h.j('!alvos.some(x=>x.k==="vca"&&x.kind==="a")'), 'o destino atual do cipó não é oferecido de novo');
+});
+T('v0.7.7: a seleção não entra no save e não muda nada do patch', () => {
+  const h = carrega(ARQ); h.run('save()'); const antes = h.ls.micelio42;
+  h.run('selPorta({t:"o",k:"kick"});tocaSaida("kick",undefined);save()'); assert.strictEqual(h.ls.micelio42, antes);
+});
+
+T('v0.7.7: desenhar os destaques não quebra em nenhuma seleção (saídas, entradas, cabos, tela deslocada, LQ)', () => {
+  const h = carrega(ARQ);
+  const r = h.j(`(()=>{let n=0;const sels=[];for(const k in M){const m=M[k];if(m.pts)for(const pt of m.pts)sels.push({t:"o",k,pt});else if(m.o||m.g)sels.push({t:"o",k});if(m.i)sels.push({t:"i",k,kind:"a"});if(ALV[k])sels.push({t:"i",k,kind:"c"});if(m.gi)sels.push({t:"i",k,kind:"g"})}
+   for(let i=0;i<C.length;i++)sels.push({t:"c",i});
+   for(const cm of [0,-W]){cam=cm;for(const lq of [false,true]){LQ=lq;for(const s of sels){selPorta(s);destaques(1.234);destaques(2.5);n++}}}
+   selPorta(null);destaques(1);cam=0;LQ=false;return{n,sels:sels.length}})()`);
+  assert.ok(r.n > 100, 'poucas seleções desenhadas: ' + r.n);
+});
+
 // ---------- execução ----------
 (async () => {
   let ok = 0, falha = 0;

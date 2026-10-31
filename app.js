@@ -1,5 +1,6 @@
 "use strict";
 /* CHANGELOG
+v0.7.7 (ligações legíveis): tocar numa saída, numa entrada (● áudio, ◇ CV, ▷ gate) ou no ponto de um cipó destaca tudo que combina com ela: anéis que piscam suave (parados se o sistema pede menos movimento), com o tipo da porta escrito, e uma seta na borda quando o destino está fora da tela, onde o toque continua valendo depois de arrastar o fundo. Toque numa que pisca liga (modo toque, sem arrastar); arrastar de uma saída continua igual, mas agora mostra os destinos durante o arrasto. O ponto do cipó agora seleciona no primeiro toque (vira ✕) e corta no segundo. As regras do que pode ligar ficaram numa função só (motivoNao), a mesma que conecta usa, então o destaque nunca mente. Som, preset e saves inalterados.
 v0.7.6 (DSP do worklet, só no modo worklet; o nativo não muda): (1) o ladder limita a ressonância em 1,08 (acima de ~1,12 ele virava um tom permanente a cerca de −25 dBFS, que nascia até do silêncio, nos últimos ~4% do slider "reso"); (2) o volume de saída do ladder passa a ser normalizado pelo drive em torno do drive do preset (4,6 = 1+0,45×8), então o drive mexe no timbre sem variar ~16 dB de volume (−24 a −8 dBFS com sinal de baixo); no preset a saída é idêntica à da v0.7.5, amostra por amostra; (3) o dobrador roda sobreamostrado 4× (FIR de fase linear, atraso de 17 amostras = 0,35 ms, ganho plano até 18 kHz): o aliasing audível (<16 kHz) com sinal forte e agudo cai de −1…−50 dB para −55…−117 dB da energia, ao custo de ~4× a CPU do dobrador (medido offline: 1,2% → 4,5% de um núcleo). Atenção: medido offline, não ouvido; o volume do ladder fora do preset muda de propósito (drive baixo fica mais alto, drive alto mais baixo).
 v0.7.5 (menu, visual): com o menu recolhido a floresta passa a ocupar a tela toda: a altura útil (FH) cresce com suavização de H*0,54 até H−88, então módulos, cipós, caules e partículas do espectro se espalham pelo espaço liberado (os caules nascem rente à faixa); expandido, tudo volta exatamente à posição de antes. Só visual; som, preset e saves inalterados.
 v0.7.4 (menu): o painel do módulo ganha um botão ▾/▴ no cabeçalho (ou toque no cabeçalho) que recolhe tudo numa faixa fina com o nome do módulo e libera o canvas; o estado fica em localStorage (micelio_menu) e não entra no save do preset (micelio42). Som, preset e saves inalterados.
@@ -107,11 +108,15 @@ const P=(m,k)=>M[m].p[k];
 const liga=(a,b,k)=>{if(ctx&&k!=="g")try{M[a].o.connect(k==="c"?M[b].c:M[b].i)}catch(e){}};
 const desliga=(a,b,k)=>{if(ctx&&k!=="g")try{M[a].o.disconnect(k==="c"?M[b].c:M[b].i)}catch(e){}};
 function alcanca(de,para,k){const v={},f=n=>{if(n===para)return true;if(v[n])return false;v[n]=1;return C.some(c=>c[2]===k&&c[0]===n&&f(c[1]))};return f(de)}
+// v0.7.7: regras de ligação num lugar só (usadas por conecta e pelo destaque do que combina). null = pode; "" = recusa em silêncio; texto = aviso
+function motivoNao(a,b,k,pt){
+ if(a===b)return"";
+ if(k==="g"?(!M[a].g||!M[b].gi):(!M[a].o||(k==="a"?!M[b].i:!ALV[b])))return"essa saída não combina com essa entrada";
+ if(C.some(c=>c[0]===a&&c[1]===b&&c[2]===k&&c[3]===pt))return"";
+ if((k==="a"||k==="g")&&alcanca(b,a,k))return"esse cipó faria um laço fechado";
+ return null}
 function conecta(a,b,k,pt){
- if(a===b)return;
- if(k==="g"?(!M[a].g||!M[b].gi):(!M[a].o||(k==="a"?!M[b].i:!ALV[b]))){aviso("essa saída não combina com essa entrada");return}
- if(C.some(c=>c[0]===a&&c[1]===b&&c[2]===k&&c[3]===pt))return;
- if((k==="a"||k==="g")&&alcanca(b,a,k)){aviso("esse cipó faria um laço fechado");return}
+ const r=motivoNao(a,b,k,pt);if(r!==null){if(r)aviso(r);return}
  C.push(pt?[a,b,k,pt]:[a,b,k]);liga(a,b,k);save();
 }
 function corta(i){const c=C.splice(i,1)[0];desliga(c[0],c[1],c[2]);save()}
@@ -363,22 +368,62 @@ const pGi=m=>{const [x,y]=pos(m);return[x-PO,y+(m.i?24:0)]};
 const pCv=m=>{const [x,y]=pos(m);return[x,y-40]};
 let drag=null,dport,pan=null,ptr=[0,0],hits=[],LQ=false;
 const dist=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1]);
+// v0.7.7: seleção de saída, entrada ou cabo; tudo que combina fica destacado e pisca (psel = seleção; alvos = o que combina)
+let psel=null,alvos=[],alvosC=null,alvosN=-1,down=[0,0],togg=false;
+const REDUZ=typeof matchMedia==="function"&&matchMedia("(prefers-reduced-motion: reduce)").matches;
+const ptsDe=(a,k)=>k==="g"&&M[a].pts?M[a].pts:[undefined];
+const TIPO={a:"áudio",c:"CV",g:"gate"};
+const nomeCurto=k=>M[k].nome.replace(/\s*\(.*$/,"");
+const posAlvo=e=>{const m=M[e.k];return e.role==="out"?pOut(m,e.pt):e.kind==="a"?pIn(m):e.kind==="c"?pCv(m):pGi(m)};
+const origemSel=s=>s.t==="o"?[s.k,s.pt]:s.t==="c"&&C[s.i]?[C[s.i][0],C[s.i][3]]:null;
+function calcAlvos(s){const r=[];
+ if(s.t==="i"){for(const a in M)for(const pt of ptsDe(a,s.kind))if(motivoNao(a,s.k,s.kind,pt)===null)r.push({role:"out",k:a,pt,kind:s.kind});return r}
+ const o=origemSel(s);if(!o)return r;
+ for(const b in M)for(const kind of["a","c","g"]){const pt=kind==="g"?o[1]:undefined;if(motivoNao(o[0],b,kind,pt)===null)r.push({role:"in",k:b,kind,pt})}
+ return r}
+function anuncia(s){const n=alvos.length,fora=alvos.filter(e=>{const p=posAlvo(e);return p[0]<14||p[0]>W-14}).length;let t;
+ if(s.t==="i")t="entrada de "+TIPO[s.kind]+" · "+nomeCurto(s.k)+": "+(n?n+(n===1?" saída combina":" saídas combinam"):"nada combina agora");
+ else{const o=origemSel(s);t=(s.t==="c"?"cipó de ":"saída de ")+nomeCurto(o[0])+(o[1]?" ("+o[1]+")":"")+": "+(n?n+(n===1?" destino possível":" destinos possíveis"):"nenhum destino livre")}
+ if(n&&fora)t+=" · "+fora+" fora da tela";
+ if(n)t+="<br>toque num que pisca para ligar";
+ if(s.t==="c")t+="<br>toque de novo no ponto do cipó para cortar";
+ aviso(t)}
+function selPorta(s){psel=s;alvos=s?calcAlvos(s):[];alvosC=C;alvosN=C.length;if(s)anuncia(s)}
+// toque em saída: liga se havia uma entrada selecionada que combina (devolve true); senão seleciona (e o arrasto pode começar)
+function tocaSaida(a,pt){
+ if(psel&&psel.t==="i"&&alvos.some(x=>x.k===a&&x.pt===pt)){conecta(a,psel.k,psel.kind,psel.kind==="g"?pt:undefined);selPorta(null);return true}
+ if(psel&&psel.t==="o"&&psel.k===a&&psel.pt===pt){togg=true;return false}
+ selPorta({t:"o",k:a,pt});return false}
+function tocaEntrada(b,kind){
+ if(psel&&psel.t!=="i"&&alvos.some(x=>x.k===b&&x.kind===kind)){const o=origemSel(psel);conecta(o[0],b,kind,kind==="g"?o[1]:undefined);selPorta(null);return true}
+ if(psel&&psel.t==="i"&&psel.k===b&&psel.kind===kind){selPorta(null);return false}
+ selPorta({t:"i",k:b,kind});return false}
+function tocaCabo(i){if(psel&&psel.t==="c"&&psel.i===i){corta(i);selPorta(null)}else selPorta({t:"c",i})}
 cv.addEventListener("pointerdown",e=>{
- ptr=[e.clientX,e.clientY];cv.setPointerCapture(e.pointerId);
+ ptr=[e.clientX,e.clientY];down=[e.clientX,e.clientY];togg=false;cv.setPointerCapture(e.pointerId);
  for(const k in M){const m=M[k];
-  if(m.pts){let bp=null,bd=24;for(const pt of m.pts){const d=dist(ptr,pOut(m,pt));if(d<bd){bd=d;bp=pt}}if(bp){drag=k;dport=bp;sel=k;painel();return}}
-  else if((m.o||m.g)&&dist(ptr,pOut(m))<26){drag=k;dport=undefined;sel=k;painel();return}}
- for(const h of hits)if(dist(ptr,h.p)<18){corta(h.i);return}
+  if(m.pts){let bp=null,bd=24;for(const pt of m.pts){const d=dist(ptr,pOut(m,pt));if(d<bd){bd=d;bp=pt}}if(bp){if(tocaSaida(k,bp))return;drag=k;dport=bp;sel=k;painel();return}}
+  else if((m.o||m.g)&&dist(ptr,pOut(m))<26){if(tocaSaida(k,undefined))return;drag=k;dport=undefined;sel=k;painel();return}}
+ {let bk=null,bd=26,bkind;for(const k in M){const m=M[k];
+   if(m.i){const d=dist(ptr,pIn(m));if(d<bd){bd=d;bk=k;bkind="a"}}
+   if(ALV[k]){const d=dist(ptr,pCv(m));if(d<bd){bd=d;bk=k;bkind="c"}}
+   if(m.gi){const d=dist(ptr,pGi(m));if(d<bd){bd=d;bk=k;bkind="g"}}}
+  if(bk){sel=bk;painel();tocaEntrada(bk,bkind);return}}
+ for(const h of hits)if(dist(ptr,h.p)<18){tocaCabo(h.i);return}
  let b=null,dm=1e9;for(const k in M){const d=dist(ptr,pos(M[k]));if(d<dm){dm=d;b=k}}
- if(dm<48){sel=b;painel()}else pan={x:e.clientX,c:cam};
+ if(dm<48){sel=b;painel();selPorta(null)}else pan={x:e.clientX,c:cam,mv:0};
 });
-cv.addEventListener("pointermove",e=>{ptr=[e.clientX,e.clientY];if(pan)cam=Math.max(W-W*2,Math.min(0,pan.c+e.clientX-pan.x))});
+cv.addEventListener("pointermove",e=>{ptr=[e.clientX,e.clientY];if(pan){if(Math.abs(e.clientX-pan.x)>8)pan.mv=1;cam=Math.max(W-W*2,Math.min(0,pan.c+e.clientX-pan.x))}});
 cv.addEventListener("pointerup",e=>{
- pan=null;
- if(drag){const q=[e.clientX,e.clientY];let b=null,kd,dm=34;
-  for(const k in M){if(M[k].i){const d=dist(q,pIn(M[k]));if(d<dm){dm=d;b=k;kd="a"}}if(ALV[k]){const d=dist(q,pCv(M[k]));if(d<dm){dm=d;b=k;kd="c"}}if(M[k].gi){const d=dist(q,pGi(M[k]));if(d<dm){dm=d;b=k;kd="g"}}}
-  if(b)conecta(drag,b,kd,kd==="g"?dport:undefined);drag=null}
+ if(pan&&!pan.mv)selPorta(null);pan=null;
+ if(drag){const q=[e.clientX,e.clientY];
+  if(dist(q,down)<14){if(togg)selPorta(null)}
+  else{let b=null,kd,dm=34;
+   for(const k in M){if(M[k].i){const d=dist(q,pIn(M[k]));if(d<dm){dm=d;b=k;kd="a"}}if(ALV[k]){const d=dist(q,pCv(M[k]));if(d<dm){dm=d;b=k;kd="c"}}if(M[k].gi){const d=dist(q,pGi(M[k]));if(d<dm){dm=d;b=k;kd="g"}}}
+   if(b)conecta(drag,b,kd,kd==="g"?dport:undefined);selPorta(null)}
+  drag=null}
 });
+cv.addEventListener("pointercancel",()=>{pan=null;drag=null});
 const arv=Array.from({length:22},()=>({x:Math.random(),h:.25+Math.random()*.5,f:Math.random()*6,z:Math.random()}));
 const rgba=(hex,a)=>{const n=parseInt(hex.slice(1),16);return"rgba("+(n>>16)+","+(n>>8&255)+","+(n&255)+","+a+")"};
 const DG=[2,6],DC=[7,5],DN=[];const tri=(px,py,s)=>{g.beginPath();g.moveTo(px-s*.8,py-s);g.lineTo(px+s,py);g.lineTo(px-s*.8,py+s);g.closePath()};
@@ -426,6 +471,25 @@ function cabo(a,b,cor,t,e,dash){
  const u=(t*.45+a[1]*.003)%1,p=q(u);g.fillStyle=rgba(cor,.5+e*.5);g.beginPath();g.arc(p[0],p[1],2.5+e*3,0,7);g.fill();
  return q(.5);
 }
+// v0.7.7: anel fixo na porta selecionada; anéis que piscam suave em tudo que combina (e seta na borda se o destino está fora da tela)
+function destaques(t){
+ if(!psel)return;
+ if(psel.t==="c"&&!C[psel.i]){selPorta(null);return}
+ if(alvosC!==C||alvosN!==C.length){alvos=calcAlvos(psel);alvosC=C;alvosN=C.length}
+ const pl=REDUZ?.8:.5+.5*Math.sin(t*5.2),o=psel.t==="i"?null:origemSel(psel),corO=o?(o[1]?PC[o[1]]:M[o[0]].cor):null;
+ g.save();g.setLineDash(DN);g.font="10px "+FONTE;
+ const sp=psel.t==="i"?posAlvo({role:"in",k:psel.k,kind:psel.kind}):pOut(M[o[0]],o[1]),sc=psel.t==="i"?M[psel.k].cor:corO;
+ g.lineWidth=2;g.strokeStyle=rgba(sc,.95);g.shadowColor=sc;g.shadowBlur=LQ?0:14;g.beginPath();g.arc(sp[0],sp[1],17,0,7);g.stroke();
+ g.shadowBlur=0;g.setLineDash([4,4]);g.beginPath();g.arc(sp[0],sp[1],22,0,7);g.stroke();g.setLineDash(DN);
+ for(const e of alvos){const p=posAlvo(e),cor=e.role==="out"?(e.pt?PC[e.pt]:M[e.k].cor):corO;
+  if(p[0]<14||p[0]>W-14){const L=p[0]<14,x=L?10:W-10,y=Math.max(70,Math.min(H-70,p[1])),s=L?-6:6;g.fillStyle=rgba(cor,.35+.5*pl);g.beginPath();g.moveTo(x+s,y);g.lineTo(x-s,y-6);g.lineTo(x-s,y+6);g.closePath();g.fill();continue}
+  g.lineWidth=2;g.shadowColor=cor;g.shadowBlur=LQ?0:6+10*pl;g.strokeStyle=rgba(cor,.35+.6*pl);g.fillStyle=rgba(cor,.08+.16*pl);
+  g.beginPath();g.arc(p[0],p[1],13+3*pl,0,7);g.fill();g.stroke();g.shadowBlur=0;
+  const lab=e.role==="in"?(e.kind==="c"?ALV[e.k].map(x=>x[0]).join(" · "):TIPO[e.kind]):nomeCurto(e.k)+(e.pt?" "+e.pt:"");
+  g.textAlign=e.role==="in"&&e.kind==="c"?"center":e.role==="in"?"right":"left";
+  const tx=e.role==="in"?(e.kind==="c"?p[0]:p[0]-18):p[0]+(M[e.k].pts?24:18),ty=e.role==="in"&&e.kind==="c"?p[1]-17:p[1]+4;
+  g.lineWidth=3;g.strokeStyle="rgba(5,6,10,.85)";g.strokeText(lab,tx,ty);g.fillStyle="#d8f5ea";g.fillText(lab,tx,ty)}
+ g.restore();g.shadowBlur=0;g.lineWidth=2}
 const bins=new Uint8Array(128),pb=new Float32Array(1024);let fr=0,pm=0,clipAte=0;
 function quadro(){
  const t=performance.now()/1000;fhPasso();
@@ -444,10 +508,12 @@ g.drawImage(bgc,0,0,W,H);if(beat>.02){g.globalAlpha=Math.min(1,beat);g.drawImage
  g.fillStyle="#e8ff5a";
  for(let i=0;i<48;i+=LQ?2:1){const v=bins[i+2]/255;if(v<.05)continue;g.globalAlpha=v;g.beginPath();g.arc((i/48)*W+Math.sin(t+i)*10,FH()*.5+Math.cos(t*.7+i*1.7)*FH()*.35,1+v*3,0,7);g.fill()}
  g.globalAlpha=1;hits=[];
- C.forEach((c,i)=>{const a=M[c[0]],b=M[c[1]],kd=c[2],cor=c[3]?PC[c[3]]:a.cor,p0=pOut(a,c[3]),p1=kd==="c"?pCv(b):kd==="g"?pGi(b):pIn(b);if(Math.max(p0[0],p1[0])<-40||Math.min(p0[0],p1[0])>W+40)return;const p=cabo(p0,p1,cor,t,E[c[3]?c[0]+":"+c[3]:c[0]]||0,kd==="c"?true:kd==="g"?DG:false);hits.push({i,p});
-  g.fillStyle="#05060a";g.strokeStyle=cor;g.lineWidth=1.5;g.beginPath();g.arc(p[0],p[1],5,0,7);g.fill();g.stroke()});
+ C.forEach((c,i)=>{const a=M[c[0]],b=M[c[1]],kd=c[2],cor=c[3]?PC[c[3]]:a.cor,p0=pOut(a,c[3]),p1=kd==="c"?pCv(b):kd==="g"?pGi(b):pIn(b);if(Math.max(p0[0],p1[0])<-40||Math.min(p0[0],p1[0])>W+40)return;const p=cabo(p0,p1,cor,t,(psel&&psel.t==="c"&&psel.i===i)?1:E[c[3]?c[0]+":"+c[3]:c[0]]||0,kd==="c"?true:kd==="g"?DG:false);hits.push({i,p});
+  g.fillStyle="#05060a";g.strokeStyle=cor;g.lineWidth=1.5;g.beginPath();g.arc(p[0],p[1],5,0,7);g.fill();g.stroke();
+  if(psel&&psel.t==="c"&&psel.i===i){g.fillStyle="#05060a";g.strokeStyle="#fff";g.lineWidth=2;g.beginPath();g.arc(p[0],p[1],9,0,7);g.fill();g.stroke();g.beginPath();g.moveTo(p[0]-3.5,p[1]-3.5);g.lineTo(p[0]+3.5,p[1]+3.5);g.moveTo(p[0]+3.5,p[1]-3.5);g.lineTo(p[0]-3.5,p[1]+3.5);g.stroke()}});
  if(drag)cabo(pOut(M[drag],dport),ptr,dport?PC[dport]:M[drag].cor,t,.5,false);
  for(const k in M)planta(k,M[k],t);
+ destaques(t);
  requestAnimationFrame(quadro);
 }
 const hud=document.getElementById("hud");
